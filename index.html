@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://s3.tradingview.com/tv.js"></script>
 <style>
   :root{
     --bg:#0a0d11;
@@ -190,6 +191,30 @@
   .pnl-neg{color:var(--sell);}
   .pnl-flat{color:var(--muted-2);}
 
+  .sym-click{cursor:pointer;text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color .15s;}
+  .sym-click:hover{text-decoration-color:var(--muted-2);}
+
+  .chart-modal{
+    display:none;position:fixed;inset:0;background:rgba(5,7,10,.75);
+    z-index:1000;align-items:center;justify-content:center;padding:16px;
+  }
+  .chart-modal.open{display:flex;}
+  .chart-modal-inner{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    width:100%;max-width:1000px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;
+  }
+  .chart-modal-head{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:12px 16px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:13px;
+  }
+  .chart-modal-close{
+    cursor:pointer;color:var(--muted);font-size:20px;line-height:1;padding:2px 8px;
+    border-radius:4px;
+  }
+  .chart-modal-close:hover{color:var(--text);background:var(--surface-2);}
+  #tvChartContainer{flex:1;min-height:480px;}
+
   footer{
     margin-top:22px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
     font-family:var(--mono);font-size:11px;color:var(--muted-2);
@@ -309,6 +334,16 @@
       <div>Signals are informational only, not investment advice.</div>
     </footer>
     <div id="errBox"></div>
+  </div>
+
+  <div class="chart-modal" id="chartModal">
+    <div class="chart-modal-inner">
+      <div class="chart-modal-head">
+        <span id="chartModalTitle">&mdash;</span>
+        <span class="chart-modal-close" id="chartModalClose">&times;</span>
+      </div>
+      <div id="tvChartContainer"></div>
+    </div>
   </div>
 
 </div>
@@ -569,7 +604,7 @@
     body.innerHTML = rows.map(function(s){
       return "<tr>" + COLUMNS.map(function(c){
         if (c.key === "SYMBOLL"){
-          return '<td><span class="sym">' + escapeHtml((s.SYMBOLL || "").replace(/\.NS$/,"")) + '</span></td>';
+          return '<td><span class="sym sym-click" data-symbol="' + escapeHtml(s.SYMBOLL || "") + '">' + escapeHtml((s.SYMBOLL || "").replace(/\.NS$/,"")) + '</span></td>';
         }
         if (c.key === "COMPANY"){
           return '<td><span class="company">' + escapeHtml(s.COMPANY || "") + '</span></td>';
@@ -595,7 +630,7 @@
   function tierRowsHtml(list){
     return list.map(function(s){
       return "<tr>" +
-        '<td><span class="sym">' + escapeHtml((s.SYMBOLL || "").replace(/\.NS$/,"")) + '</span></td>' +
+        '<td><span class="sym sym-click" data-symbol="' + escapeHtml(s.SYMBOLL || "") + '">' + escapeHtml((s.SYMBOLL || "").replace(/\.NS$/,"")) + '</span></td>' +
         '<td><span class="company">' + escapeHtml(s.COMPANY || "") + '</span></td>' +
         '<td>' + fmtNum(s.PRICE) + '</td>' +
         '<td><span class="badge ' + (s.Signal || "") + '">' + (s.Signal || "") + '</span></td>' +
@@ -709,7 +744,7 @@
       var pnlCls = (isOpenBuy || isClosedSell) ? pnlClass(r.pnlPercent) : "pnl-flat";
       return "<tr>" +
         '<td style="text-align:left;">' + escapeHtml(r.date) + '</td>' +
-        '<td style="text-align:left;" class="sym">' + escapeHtml((r.symbol || "").replace(/\.NS$/,"")) + '</td>' +
+        '<td style="text-align:left;" class="sym sym-click" data-symbol="' + escapeHtml(r.symbol || "") + '">' + escapeHtml((r.symbol || "").replace(/\.NS$/,"")) + '</td>' +
         '<td><span class="badge ' + r.signal + '">' + r.signal + '</span></td>' +
         '<td>' + fmtNum(r.price) + '</td>' +
         '<td>' + curCell + '</td>' +
@@ -745,6 +780,72 @@
     el.style.display = "block";
     el.textContent = msg;
   }
+
+  // --------------------------------------------------------------------
+  // Ticker chart modal - opens a TradingView chart (candles + SMA
+  // 44/100/200 overlay) for whichever symbol was clicked. Uses
+  // TradingView's own hosted data, so no historical prices need to be
+  // fetched or stored by this dashboard.
+  // --------------------------------------------------------------------
+  function toTradingViewSymbol(symbol){
+    var base = (symbol || "").replace(/\.NS$/i, "").toUpperCase();
+    return "NSE:" + base;
+  }
+
+  function openChart(symbol){
+    var modal = document.getElementById("chartModal");
+    var title = document.getElementById("chartModalTitle");
+    var container = document.getElementById("tvChartContainer");
+    title.textContent = (symbol || "").replace(/\.NS$/i, "");
+    container.innerHTML = "";
+    modal.classList.add("open");
+
+    if (typeof TradingView === "undefined" || !TradingView.widget){
+      container.innerHTML = '<div class="no-rows">Chart widget failed to load - check your connection and try again.</div>';
+      return;
+    }
+
+    new TradingView.widget({
+      autosize: true,
+      symbol: toTradingViewSymbol(symbol),
+      interval: "D",
+      timezone: "Asia/Kolkata",
+      theme: "dark",
+      style: "1",
+      locale: "in",
+      toolbar_bg: "#12161c",
+      enable_publishing: false,
+      hide_top_toolbar: false,
+      hide_legend: false,
+      allow_symbol_change: false,
+      container_id: "tvChartContainer",
+      studies: [
+        { id: "MASimple@tv-basicstudies", inputs: { length: 44 } },
+        { id: "MASimple@tv-basicstudies", inputs: { length: 100 } },
+        { id: "MASimple@tv-basicstudies", inputs: { length: 200 } }
+      ]
+    });
+  }
+
+  function closeChart(){
+    document.getElementById("chartModal").classList.remove("open");
+    document.getElementById("tvChartContainer").innerHTML = "";
+  }
+
+  document.addEventListener("click", function(e){
+    var symEl = e.target.closest(".sym-click");
+    if (symEl){
+      openChart(symEl.getAttribute("data-symbol"));
+      return;
+    }
+    if (e.target.id === "chartModalClose" || e.target.id === "chartModal"){
+      closeChart();
+    }
+  });
+
+  document.addEventListener("keydown", function(e){
+    if (e.key === "Escape") closeChart();
+  });
 
   Promise.all([
     fetch(DATA_URL + "?t=" + Date.now()).then(function(res){
