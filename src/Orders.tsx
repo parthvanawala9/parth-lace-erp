@@ -223,31 +223,19 @@ export default function Orders() {
           remarks: item.remarks,
         });
       } else {
-        const lines = ["[Mix Colour]", `Type: ${item.mix_type}`];
-
         const uniqueSelectedIds = Array.from(new Set(item.selected_colour_ids));
-        const selectedNames = colours
-          .filter((c) => uniqueSelectedIds.includes(c.id))
-          .map((c) => c.colour_name);
 
-        lines.push("Colours:");
-        lines.push(...selectedNames);
-
-        if (item.remarks.trim()) {
-          lines.push(`Remarks: ${item.remarks.trim()}`);
+        for (const cId of uniqueSelectedIds) {
+          await supabase.from("order_items").insert({
+            order_id: order.id,
+            design_id: Number(item.design_id),
+            colour_id: Number(cId),
+            quantity: Number(item.quantity),
+            unit: item.unit,
+            machine_id: null,
+            remarks: item.remarks,
+          });
         }
-
-        const finalRemarks = lines.join("\n");
-
-        await supabase.from("order_items").insert({
-          order_id: order.id,
-          design_id: Number(item.design_id),
-          colour_id: null,
-          quantity: Number(item.quantity),
-          unit: item.unit,
-          machine_id: null,
-          remarks: finalRemarks,
-        });
 
         if (item.update_party_chart) {
           partyChartUpdateNeeded = true;
