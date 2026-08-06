@@ -276,22 +276,179 @@ export default function Orders() {
     navigate("/orders");
   }
 
+  const renderMixColourContent = (row: Item, index: number) => {
+    const chartColourObjects = colours.filter((c) =>
+      partyDefaultColourIds.includes(c.id)
+    );
+    const remainingColourObjects = colours.filter(
+      (c) => !partyDefaultColourIds.includes(c.id)
+    );
+
+    return (
+      <div className="space-y-3 w-full">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap">
+            <input
+              type="radio"
+              name={`mix_type_${index}`}
+              value="Use Party Colour Chart"
+              checked={row.mix_type === "Use Party Colour Chart"}
+              onChange={() =>
+                updateRow(index, "mix_type", "Use Party Colour Chart")
+              }
+            />
+            Use Party Colour Chart
+          </label>
+
+          <label className="flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap">
+            <input
+              type="radio"
+              name={`mix_type_${index}`}
+              value="Custom Colours"
+              checked={row.mix_type === "Custom Colours"}
+              onChange={() =>
+                updateRow(index, "mix_type", "Custom Colours")
+              }
+            />
+            Custom Colours
+          </label>
+        </div>
+
+        {row.mix_type === "Use Party Colour Chart" && (
+          <div className="border rounded p-3 bg-slate-50 space-y-3 w-full box-border">
+            <div className="font-semibold text-xs text-slate-500 uppercase tracking-wider">
+              Party Chart
+            </div>
+
+            <div className="space-y-1 max-h-36 overflow-y-auto">
+              {chartColourObjects.length === 0 ? (
+                <div className="text-xs text-slate-400 italic">
+                  No party favourite colours set.
+                </div>
+              ) : (
+                chartColourObjects.map((c) => (
+                  <label
+                    key={c.id}
+                    className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={row.selected_colour_ids.includes(c.id)}
+                      onChange={() => toggleColourSelection(index, c.id)}
+                    />
+                    <span>{c.colour_name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+
+            {!row.show_extra_colours ? (
+              <button
+                type="button"
+                onClick={() => updateRow(index, "show_extra_colours", true)}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 min-h-[32px]"
+              >
+                + Add More Colours
+              </button>
+            ) : (
+              <div className="pt-2 border-t space-y-2">
+                <div className="font-semibold text-xs text-slate-500 uppercase tracking-wider">
+                  Extra Colours
+                </div>
+                <div className="space-y-1 max-h-36 overflow-y-auto">
+                  {remainingColourObjects.map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={row.selected_colour_ids.includes(c.id)}
+                        onChange={() => toggleColourSelection(index, c.id)}
+                      />
+                      <span>{c.colour_name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 border-t">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="rounded text-blue-600"
+                  checked={row.update_party_chart}
+                  onChange={(e) =>
+                    updateRow(index, "update_party_chart", e.target.checked)
+                  }
+                />
+                Update Party Colour Chart
+              </label>
+            </div>
+          </div>
+        )}
+
+        {row.mix_type === "Custom Colours" && (
+          <div className="border rounded p-3 bg-slate-50 space-y-2 w-full box-border">
+            <div className="flex gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => selectAllColours(index)}
+                className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-3 py-1.5 rounded font-medium min-h-[32px] flex-1 sm:flex-none"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={() => clearAllColours(index)}
+                className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-3 py-1.5 rounded font-medium min-h-[32px] flex-1 sm:flex-none"
+              >
+                Clear All
+              </button>
+            </div>
+
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {colours.map((c) => (
+                <label
+                  key={c.id}
+                  className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
+                >
+                  <input
+                    type="checkbox"
+                    checked={row.selected_colour_ids.includes(c.id)}
+                    onChange={() => toggleColourSelection(index, c.id)}
+                  />
+                  <span>{c.colour_name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Order Entry</h1>
+    <div className="p-4 sm:p-8 max-w-full overflow-x-hidden">
+      {/* 1. Header */}
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
+          Order Entry
+        </h1>
 
         <button
           onClick={saveOrder}
-          className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition"
+          className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition"
         >
           Save Order
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      {/* 2. Top section */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <select
-          className="border rounded-lg p-3"
+          className="border rounded-lg p-3 w-full"
           value={partyId}
           onChange={(e) => handlePartyChange(e.target.value)}
         >
@@ -306,44 +463,151 @@ export default function Orders() {
 
         <input
           type="date"
-          className="border rounded-lg p-3"
+          className="border rounded-lg p-3 w-full"
           value={deliveryDate}
           onChange={(e) => setDeliveryDate(e.target.value)}
         />
 
         <input
-          className="border rounded-lg p-3"
+          className="border rounded-lg p-3 w-full"
           placeholder="Remarks"
           value={remarks}
           onChange={(e) => setRemarks(e.target.value)}
         />
       </div>
 
-      <table className="w-full bg-white rounded-xl shadow">
-        <thead className="bg-slate-100">
-          <tr>
-            <th className="p-3 text-left">Design</th>
-            <th className="p-3 text-center">Mix Colour</th>
-            <th className="p-3 text-left">Colour</th>
-            <th className="p-3 text-left">Qty</th>
-            <th className="p-3 text-left">Unit</th>
-            <th className="p-3 text-center">Production</th>
-            <th className="p-3 text-left">Remarks</th>
-          </tr>
-        </thead>
+      {/* 3a. Mobile View Cards (< 640px) */}
+      <div className="block sm:hidden space-y-4">
+        {items.map((row, index) => (
+          <div
+            key={index}
+            className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-4"
+          >
+            <div className="flex justify-between items-center border-b pb-2">
+              <span className="font-semibold text-sm text-slate-700">
+                Item #{index + 1}
+              </span>
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded text-blue-600"
+                  checked={row.is_mix_colour}
+                  onChange={(e) =>
+                    updateRow(index, "is_mix_colour", e.target.checked)
+                  }
+                />
+                <span>Mix Colour</span>
+              </label>
+            </div>
 
-        <tbody>
-          {items.map((row, index) => {
-            const chartColourObjects = colours.filter((c) =>
-              partyDefaultColourIds.includes(c.id)
-            );
-            const remainingColourObjects = colours.filter(
-              (c) => !partyDefaultColourIds.includes(c.id)
-            );
+            {/* Design */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                Design
+              </label>
+              <select
+                className="border w-full p-2.5 rounded-lg text-sm bg-white"
+                value={row.design_id}
+                onChange={(e) => updateRow(index, "design_id", e.target.value)}
+              >
+                <option value="">Select Design</option>
+                {designs.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.design_name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-            return (
+            {/* Colour / Mix Colour */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                Colour
+              </label>
+              {!row.is_mix_colour ? (
+                <select
+                  className="border w-full p-2.5 rounded-lg text-sm bg-white"
+                  value={row.colour_id}
+                  onChange={(e) => updateRow(index, "colour_id", e.target.value)}
+                >
+                  <option value="">Select Colour</option>
+                  {colours.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.colour_name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                renderMixColourContent(row, index)
+              )}
+            </div>
+
+            {/* Quantity & Unit */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                  Quantity
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  className="border w-full p-2.5 rounded-lg text-sm bg-white"
+                  placeholder="Qty"
+                  value={row.quantity}
+                  onChange={(e) => updateRow(index, "quantity", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                  Unit
+                </label>
+                <select
+                  className="border w-full p-2.5 rounded-lg text-sm bg-white"
+                  value={row.unit}
+                  onChange={(e) => updateRow(index, "unit", e.target.value)}
+                >
+                  <option>Pieces</option>
+                  <option>Parcel</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Remarks */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
+                Remarks
+              </label>
+              <input
+                className="border w-full p-2.5 rounded-lg text-sm bg-white"
+                placeholder="Item remarks..."
+                value={row.remarks}
+                onChange={(e) => updateRow(index, "remarks", e.target.value)}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 3b. Desktop View Table (>= 640px) */}
+      <div className="hidden sm:block overflow-x-auto w-full bg-white rounded-xl shadow">
+        <table className="w-full min-w-[700px] bg-white rounded-xl">
+          <thead className="bg-slate-100">
+            <tr>
+              <th className="p-3 text-left">Design</th>
+              <th className="p-3 text-center">Mix Colour</th>
+              <th className="p-3 text-left">Colour</th>
+              <th className="p-3 text-left">Qty</th>
+              <th className="p-3 text-left">Unit</th>
+              <th className="p-3 text-center">Production</th>
+              <th className="p-3 text-left">Remarks</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {items.map((row, index) => (
               <tr key={index} className="align-top border-t">
-                <td className="p-2">
+                <td className="p-2 min-w-[140px]">
                   <select
                     className="border w-full p-2 rounded"
                     value={row.design_id}
@@ -359,7 +623,7 @@ export default function Orders() {
                   </select>
                 </td>
 
-                <td className="p-2 text-center">
+                <td className="p-2 text-center min-w-[90px]">
                   <input
                     type="checkbox"
                     className="w-5 h-5 cursor-pointer mt-2"
@@ -370,7 +634,7 @@ export default function Orders() {
                   />
                 </td>
 
-                <td className="p-2">
+                <td className="p-2 min-w-[200px]">
                   {!row.is_mix_colour ? (
                     <select
                       className="border w-full p-2 rounded"
@@ -388,151 +652,11 @@ export default function Orders() {
                       ))}
                     </select>
                   ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-4">
-                        <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`mix_type_${index}`}
-                            value="Use Party Colour Chart"
-                            checked={row.mix_type === "Use Party Colour Chart"}
-                            onChange={() =>
-                              updateRow(index, "mix_type", "Use Party Colour Chart")
-                            }
-                          />
-                          Use Party Colour Chart
-                        </label>
-
-                        <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`mix_type_${index}`}
-                            value="Custom Colours"
-                            checked={row.mix_type === "Custom Colours"}
-                            onChange={() =>
-                              updateRow(index, "mix_type", "Custom Colours")
-                            }
-                          />
-                          Custom Colours
-                        </label>
-                      </div>
-
-                      {row.mix_type === "Use Party Colour Chart" && (
-                        <div className="border rounded p-3 bg-slate-50 space-y-3 max-w-xs">
-                          <div className="font-semibold text-xs text-slate-500 uppercase tracking-wider">
-                            Party Chart
-                          </div>
-
-                          <div className="space-y-1 max-h-36 overflow-y-auto">
-                            {chartColourObjects.length === 0 ? (
-                              <div className="text-xs text-slate-400 italic">
-                                No party favourite colours set.
-                              </div>
-                            ) : (
-                              chartColourObjects.map((c) => (
-                                <label
-                                  key={c.id}
-                                  className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={row.selected_colour_ids.includes(c.id)}
-                                    onChange={() => toggleColourSelection(index, c.id)}
-                                  />
-                                  <span>{c.colour_name}</span>
-                                </label>
-                              ))
-                            )}
-                          </div>
-
-                          {!row.show_extra_colours ? (
-                            <button
-                              type="button"
-                              onClick={() => updateRow(index, "show_extra_colours", true)}
-                              className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                            >
-                              + Add More Colours
-                            </button>
-                          ) : (
-                            <div className="pt-2 border-t space-y-2">
-                              <div className="font-semibold text-xs text-slate-500 uppercase tracking-wider">
-                                Extra Colours
-                              </div>
-                              <div className="space-y-1 max-h-36 overflow-y-auto">
-                                {remainingColourObjects.map((c) => (
-                                  <label
-                                    key={c.id}
-                                    className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={row.selected_colour_ids.includes(c.id)}
-                                      onChange={() => toggleColourSelection(index, c.id)}
-                                    />
-                                    <span>{c.colour_name}</span>
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="pt-2 border-t">
-                            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                className="rounded text-blue-600"
-                                checked={row.update_party_chart}
-                                onChange={(e) =>
-                                  updateRow(index, "update_party_chart", e.target.checked)
-                                }
-                              />
-                              Update Party Colour Chart
-                            </label>
-                          </div>
-                        </div>
-                      )}
-
-                      {row.mix_type === "Custom Colours" && (
-                        <div className="border rounded p-3 bg-slate-50 space-y-2 max-w-xs">
-                          <div className="flex gap-2 mb-2">
-                            <button
-                              type="button"
-                              onClick={() => selectAllColours(index)}
-                              className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-2 py-1 rounded font-medium"
-                            >
-                              Select All
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => clearAllColours(index)}
-                              className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-2 py-1 rounded font-medium"
-                            >
-                              Clear All
-                            </button>
-                          </div>
-
-                          <div className="max-h-40 overflow-y-auto space-y-1">
-                            {colours.map((c) => (
-                              <label
-                                key={c.id}
-                                className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={row.selected_colour_ids.includes(c.id)}
-                                  onChange={() => toggleColourSelection(index, c.id)}
-                                />
-                                <span>{c.colour_name}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    renderMixColourContent(row, index)
                   )}
                 </td>
 
-                <td className="p-2">
+                <td className="p-2 min-w-[90px]">
                   <input
                     type="number"
                     min="1"
@@ -542,7 +666,7 @@ export default function Orders() {
                   />
                 </td>
 
-                <td className="p-2">
+                <td className="p-2 min-w-[110px]">
                   <select
                     className="border w-full p-2 rounded"
                     value={row.unit}
@@ -553,9 +677,11 @@ export default function Orders() {
                   </select>
                 </td>
 
-                <td className="p-2 text-center text-slate-500">Assign Later</td>
+                <td className="p-2 text-center text-slate-500 min-w-[120px]">
+                  Assign Later
+                </td>
 
-                <td className="p-2">
+                <td className="p-2 min-w-[150px]">
                   <input
                     className="border w-full p-2 rounded"
                     value={row.remarks}
@@ -563,14 +689,15 @@ export default function Orders() {
                   />
                 </td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
+      {/* 5. Add Colour button */}
       <button
         onClick={addRow}
-        className="mt-6 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition"
+        className="mt-6 w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition"
       >
         + Add Colour
       </button>

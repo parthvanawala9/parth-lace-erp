@@ -14,7 +14,7 @@ import {
   RefreshCw,
   History,
   Check,
-  FileText
+  FileText,
 } from "lucide-react";
 
 type OrderItem = {
@@ -326,7 +326,6 @@ export default function Dispatch() {
       }
 
       lastError = error;
-      // Continue to next field variant if error relates to unknown column
       if (!error.message?.includes("column")) {
         break;
       }
@@ -813,7 +812,7 @@ export default function Dispatch() {
                             className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1"
                           >
                             <Printer className="w-3.5 h-3.5" />
-                            Print Challan
+                            Challan
                           </button>
                         </td>
                       </tr>

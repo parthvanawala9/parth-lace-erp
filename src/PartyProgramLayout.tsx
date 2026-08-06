@@ -203,15 +203,15 @@ export default function PartyProgramLayout() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full box-border">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-100">
+          <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-100 flex-shrink-0">
             <Layers className="w-6 h-6 text-purple-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Party Program Layout</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Party Program Layout</h1>
             <p className="text-sm text-slate-500 mt-0.5">
               Configure production order sequencing for party-specific colour schemes.
             </p>
@@ -220,7 +220,7 @@ export default function PartyProgramLayout() {
 
         <button
           onClick={fetchInitialData}
-          className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm self-start md:self-auto"
+          className="w-full md:w-auto inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
         >
           <RefreshCw className="w-4 h-4 mr-2 text-slate-500" />
           Reload Data
@@ -247,7 +247,7 @@ export default function PartyProgramLayout() {
       )}
 
       {/* Filters Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
           <div className="relative w-full sm:w-64">
             <Filter className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -277,13 +277,13 @@ export default function PartyProgramLayout() {
           </div>
         </div>
 
-        <div className="text-xs text-slate-500 font-medium self-end md:self-center">
+        <div className="text-xs text-slate-500 font-medium self-start md:self-center">
           Showing <span className="font-bold text-slate-800">{filteredLayouts.length}</span> entries
         </div>
       </div>
 
-      {/* Table Section */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Main Container */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
         {filteredLayouts.length === 0 ? (
           <div className="p-12 text-center flex flex-col items-center justify-center">
             <AlertCircle className="w-10 h-10 text-slate-300 mb-3" />
@@ -295,90 +295,170 @@ export default function PartyProgramLayout() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500 bg-slate-50 text-xs uppercase font-semibold">
-                  <th className="py-3.5 px-6">Party Name</th>
-                  <th className="py-3.5 px-6">Colour Name</th>
-                  <th className="py-3.5 px-6 w-40">Order 1</th>
-                  <th className="py-3.5 px-6 w-40">Order 2</th>
-                  <th className="py-3.5 px-6 w-40">Order 3</th>
-                  <th className="py-3.5 px-6 text-right w-32">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredLayouts.map((row) => {
-                  const currentEdit = editedData[row.id] || {
-                    order1: row.order1 !== null && row.order1 !== undefined ? String(row.order1) : '',
-                    order2: row.order2 !== null && row.order2 !== undefined ? String(row.order2) : '',
-                    order3: row.order3 !== null && row.order3 !== undefined ? String(row.order3) : ''
-                  };
+          <>
+            {/* Desktop Table View (>= 640px) */}
+            <div className="hidden sm:block overflow-x-auto w-full">
+              <table className="w-full text-left border-collapse text-sm min-w-[650px]">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-500 bg-slate-50 text-xs uppercase font-semibold">
+                    <th className="py-3.5 px-4 sm:px-6">Party Name</th>
+                    <th className="py-3.5 px-4 sm:px-6">Colour Name</th>
+                    <th className="py-3.5 px-4 sm:px-6 min-w-[110px]">Order 1</th>
+                    <th className="py-3.5 px-4 sm:px-6 min-w-[110px]">Order 2</th>
+                    <th className="py-3.5 px-4 sm:px-6 min-w-[110px]">Order 3</th>
+                    <th className="py-3.5 px-4 sm:px-6 text-right min-w-[90px]">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredLayouts.map((row) => {
+                    const currentEdit = editedData[row.id] || {
+                      order1: row.order1 !== null && row.order1 !== undefined ? String(row.order1) : '',
+                      order2: row.order2 !== null && row.order2 !== undefined ? String(row.order2) : '',
+                      order3: row.order3 !== null && row.order3 !== undefined ? String(row.order3) : ''
+                    };
 
-                  const isRowSaving = savingId === row.id;
+                    const isRowSaving = savingId === row.id;
 
-                  return (
-                    <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-4 px-6 font-semibold text-slate-900">
-                        {row.party_name}
-                      </td>
-                      <td className="py-4 px-6 text-slate-700">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                          {row.colour_name}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6">
+                    return (
+                      <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-4 px-4 sm:px-6 font-semibold text-slate-900 whitespace-nowrap">
+                          {row.party_name}
+                        </td>
+                        <td className="py-4 px-4 sm:px-6 text-slate-700 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                            {row.colour_name}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 sm:px-6">
+                          <input
+                            type="text"
+                            value={currentEdit.order1}
+                            onChange={(e) => handleFieldChange(row.id, 'order1', e.target.value)}
+                            placeholder="Order 1"
+                            className="w-full min-w-[80px] px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
+                          />
+                        </td>
+                        <td className="py-4 px-4 sm:px-6">
+                          <input
+                            type="text"
+                            value={currentEdit.order2}
+                            onChange={(e) => handleFieldChange(row.id, 'order2', e.target.value)}
+                            placeholder="Order 2"
+                            className="w-full min-w-[80px] px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
+                          />
+                        </td>
+                        <td className="py-4 px-4 sm:px-6">
+                          <input
+                            type="text"
+                            value={currentEdit.order3}
+                            onChange={(e) => handleFieldChange(row.id, 'order3', e.target.value)}
+                            placeholder="Order 3"
+                            className="w-full min-w-[80px] px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
+                          />
+                        </td>
+                        <td className="py-4 px-4 sm:px-6 text-right">
+                          <button
+                            onClick={() => handleSaveRow(row)}
+                            disabled={isRowSaving}
+                            className="inline-flex items-center justify-center px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors shadow-sm"
+                          >
+                            {isRowSaving ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                Saving...
+                              </>
+                            ) : (
+                              <>
+                                <Save className="w-3.5 h-3.5 mr-1.5" />
+                                Save
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Cards View (< 640px) */}
+            <div className="block sm:hidden p-4 space-y-4 bg-slate-50">
+              {filteredLayouts.map((row) => {
+                const currentEdit = editedData[row.id] || {
+                  order1: row.order1 !== null && row.order1 !== undefined ? String(row.order1) : '',
+                  order2: row.order2 !== null && row.order2 !== undefined ? String(row.order2) : '',
+                  order3: row.order3 !== null && row.order3 !== undefined ? String(row.order3) : ''
+                };
+
+                const isRowSaving = savingId === row.id;
+
+                return (
+                  <div key={row.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="font-bold text-slate-900 text-base">{row.party_name}</span>
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                        {row.colour_name}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Order 1</label>
                         <input
                           type="text"
                           value={currentEdit.order1}
                           onChange={(e) => handleFieldChange(row.id, 'order1', e.target.value)}
                           placeholder="Order 1"
-                          className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
                         />
-                      </td>
-                      <td className="py-4 px-6">
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Order 2</label>
                         <input
                           type="text"
                           value={currentEdit.order2}
                           onChange={(e) => handleFieldChange(row.id, 'order2', e.target.value)}
                           placeholder="Order 2"
-                          className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
                         />
-                      </td>
-                      <td className="py-4 px-6">
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Order 3</label>
                         <input
                           type="text"
                           value={currentEdit.order3}
                           onChange={(e) => handleFieldChange(row.id, 'order3', e.target.value)}
                           placeholder="Order 3"
-                          className="w-full px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
+                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
                         />
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <button
-                          onClick={() => handleSaveRow(row)}
-                          disabled={isRowSaving}
-                          className="inline-flex items-center justify-center px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors shadow-sm"
-                        >
-                          {isRowSaving ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="w-3.5 h-3.5 mr-1.5" />
-                              Save
-                            </>
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleSaveRow(row)}
+                      disabled={isRowSaving}
+                      className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors shadow-sm pt-2.5 pb-2.5"
+                    >
+                      {isRowSaving ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 mr-2" />
+                          Save
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </div>

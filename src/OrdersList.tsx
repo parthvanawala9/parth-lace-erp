@@ -202,96 +202,192 @@ export default function OrdersList() {
         </div>
       </div>
 
-      {/* Orders Table */}
+      {/* Orders Container */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading orders...</div>
         ) : filteredOrders.length === 0 ? (
           <div className="p-8 text-center text-gray-500">No orders found.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  <th className="py-3 px-4">Order #</th>
-                  <th className="py-3 px-4">Party Name</th>
-                  <th className="py-3 px-4">Items / Designs</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 text-sm">
-                {filteredOrders.map((order) => {
-                  const items = order.items || order.order_items || [];
-                  return (
-                    <tr key={order.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 font-medium text-gray-900">
-                        #{String(order.order_no ?? '')}
-                      </td>
-                      <td className="py-3 px-4 text-gray-700 font-medium">
-                        {order.party?.name ?? order.party_name ?? 'N/A'}
-                      </td>
-                      <td className="py-3 px-4 text-gray-600">
-                        {items.length > 0 ? (
-                          <div className="space-y-1">
-                            {items.map((item, idx) => {
-                              const dName = item.designs?.design_name || item.design_name || 'Design';
-                              const cName = item.colours?.colour_name || item.colour_name;
-                              return (
-                                <div key={idx} className="text-xs">
-                                  <span className="font-semibold text-gray-800">
-                                    {dName}
+          <>
+            {/* Mobile View Cards (< 640px) */}
+            <div className="block sm:hidden divide-y divide-gray-200 p-4 space-y-4">
+              {filteredOrders.map((order) => {
+                const items = order.items || order.order_items || [];
+                return (
+                  <div
+                    key={order.id}
+                    className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">
+                          Order Number
+                        </span>
+                        <span className="font-bold text-gray-900 text-base">
+                          #{String(order.order_no ?? '')}
+                        </span>
+                      </div>
+                      <div>{getStatusBadge(order.status)}</div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm border-t border-b border-gray-100 py-2">
+                      <div>
+                        <span className="text-xs text-gray-500 block">Party Name</span>
+                        <span className="font-medium text-gray-800">
+                          {order.party?.name ?? order.party_name ?? 'N/A'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-gray-500 block">Date</span>
+                        <span className="text-gray-700 text-xs">
+                          {order.created_at
+                            ? new Date(order.created_at).toLocaleDateString()
+                            : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1">
+                        Items / Designs
+                      </span>
+                      {items.length > 0 ? (
+                        <div className="space-y-1.5 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                          {items.map((item, idx) => {
+                            const dName = item.designs?.design_name || item.design_name || 'Design';
+                            const cName = item.colours?.colour_name || item.colour_name;
+                            return (
+                              <div key={idx} className="text-xs">
+                                <span className="font-semibold text-gray-800">
+                                  {dName}
+                                </span>
+                                {cName && (
+                                  <span className="text-gray-500">
+                                    {' '}
+                                    ({cName})
                                   </span>
-                                  {cName && (
-                                    <span className="text-gray-500">
-                                      {' '}
-                                      ({cName})
-                                    </span>
-                                  )}
-                                  {item.quantity !== undefined && (
-                                    <span className="text-gray-600 font-medium ml-1">
-                                      - {item.quantity} {item.unit || 'pcs'}
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-gray-400 italic">No items</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">{getStatusBadge(order.status)}</td>
-                      <td className="py-3 px-4 text-gray-500 text-xs">
-                        {order.created_at
-                          ? new Date(order.created_at).toLocaleDateString()
-                          : 'N/A'}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center space-x-2">
-                          <button
-                            onClick={() => handleView(order)}
-                            className="p-1 text-gray-600 hover:text-blue-600 rounded"
-                            title="View"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(order.id)}
-                            className="p-1 text-gray-600 hover:text-red-600 rounded"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                                )}
+                                {item.quantity !== undefined && (
+                                  <span className="text-gray-600 font-medium ml-1">
+                                    - {item.quantity} {item.unit || 'pcs'}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ) : (
+                        <span className="text-gray-400 italic text-xs">No items</span>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button
+                        onClick={() => handleView(order)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg transition"
+                      >
+                        <Eye className="w-4 h-4" />
+                        View
+                      </button>
+                      <button
+                        onClick={() => handleDelete(order.id)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded-lg transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop View Table (>= 640px) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="py-3 px-4">Order #</th>
+                    <th className="py-3 px-4">Party Name</th>
+                    <th className="py-3 px-4">Items / Designs</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-sm">
+                  {filteredOrders.map((order) => {
+                    const items = order.items || order.order_items || [];
+                    return (
+                      <tr key={order.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 font-medium text-gray-900">
+                          #{String(order.order_no ?? '')}
+                        </td>
+                        <td className="py-3 px-4 text-gray-700 font-medium">
+                          {order.party?.name ?? order.party_name ?? 'N/A'}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">
+                          {items.length > 0 ? (
+                            <div className="space-y-1">
+                              {items.map((item, idx) => {
+                                const dName = item.designs?.design_name || item.design_name || 'Design';
+                                const cName = item.colours?.colour_name || item.colour_name;
+                                return (
+                                  <div key={idx} className="text-xs">
+                                    <span className="font-semibold text-gray-800">
+                                      {dName}
+                                    </span>
+                                    {cName && (
+                                      <span className="text-gray-500">
+                                        {' '}
+                                        ({cName})
+                                      </span>
+                                    )}
+                                    {item.quantity !== undefined && (
+                                      <span className="text-gray-600 font-medium ml-1">
+                                        - {item.quantity} {item.unit || 'pcs'}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 italic">No items</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">{getStatusBadge(order.status)}</td>
+                        <td className="py-3 px-4 text-gray-500 text-xs">
+                          {order.created_at
+                            ? new Date(order.created_at).toLocaleDateString()
+                            : 'N/A'}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex items-center justify-center space-x-2">
+                            <button
+                              onClick={() => handleView(order)}
+                              className="p-1 text-gray-600 hover:text-blue-600 rounded"
+                              title="View"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(order.id)}
+                              className="p-1 text-gray-600 hover:text-red-600 rounded"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

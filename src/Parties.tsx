@@ -167,68 +167,149 @@ export default function Parties() {
         </div>
       </div>
 
-      {/* Parties Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      {/* Parties View */}
+      <div>
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading parties...</div>
-        ) : filteredParties.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No parties found.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                  <th className="py-3 px-4">Party Name</th>
-                  <th className="py-3 px-4">Contact Person</th>
-                  <th className="py-3 px-4">Phone</th>
-                  <th className="py-3 px-4">Favourite Colours</th>
-                  <th className="py-3 px-4 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 text-sm">
-                {filteredParties.map(party => (
-                  <tr key={party.id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-medium text-gray-900">
-                      {party.name || party.party_name}
-                    </td>
-                    <td className="py-3 px-4 text-gray-600">{party.contact_person || 'N/A'}</td>
-                    <td className="py-3 px-4 text-gray-600">{party.phone || 'N/A'}</td>
-                    <td className="py-3 px-4 text-gray-600">
-                      {party.favourite_colours && party.favourite_colours.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {party.favourite_colours.map((c, i) => (
-                            <span key={i} className="px-2 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs text-gray-700">
-                              {c}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 italic">None selected</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center space-x-2">
-                        <button
-                          onClick={() => handleOpenModal(party)}
-                          className="p-1 text-gray-600 hover:text-blue-600 rounded"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(party.id)}
-                          className="p-1 text-gray-600 hover:text-red-600 rounded"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">
+            Loading parties...
           </div>
+        ) : filteredParties.length === 0 ? (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">
+            No parties found.
+          </div>
+        ) : (
+          <>
+            {/* Desktop Table View (visible at sm:640px and above) */}
+            <div className="hidden sm:block bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      <th className="py-3 px-4">Party Name</th>
+                      <th className="py-3 px-4">Contact Person</th>
+                      <th className="py-3 px-4">Phone</th>
+                      <th className="py-3 px-4">Favourite Colours</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 text-sm">
+                    {filteredParties.map(party => (
+                      <tr key={party.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 font-medium text-gray-900">
+                          {party.name || party.party_name}
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">{party.contact_person || 'N/A'}</td>
+                        <td className="py-3 px-4 text-gray-600">{party.phone || 'N/A'}</td>
+                        <td className="py-3 px-4 text-gray-600">
+                          {party.favourite_colours && party.favourite_colours.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {party.favourite_colours.map((c, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs text-gray-700">
+                                  {c}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 italic">None selected</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <div className="flex items-center justify-center space-x-2">
+                            <button
+                              onClick={() => handleOpenModal(party)}
+                              className="p-1 text-gray-600 hover:text-blue-600 rounded"
+                              title="Edit"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(party.id)}
+                              className="p-1 text-gray-600 hover:text-red-600 rounded"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Mobile Cards View (visible below sm:640px) */}
+            <div className="block sm:hidden space-y-4">
+              {filteredParties.map(party => (
+                <div key={party.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">
+                        {party.name || party.party_name}
+                      </h3>
+                      {party.contact_person && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Contact: <span className="text-gray-700 font-medium">{party.contact_person}</span>
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-1 pl-2">
+                      <button
+                        onClick={() => handleOpenModal(party)}
+                        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-md"
+                        title="Edit"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(party.id)}
+                        className="p-2 text-gray-600 hover:text-red-600 hover:bg-gray-100 rounded-md"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-xs space-y-1.5 text-gray-600 pt-2 border-t border-gray-100">
+                    {party.phone && (
+                      <div className="flex justify-between">
+                        <span className="font-medium text-gray-500">Phone:</span>
+                        <span className="text-gray-800">{party.phone}</span>
+                      </div>
+                    )}
+                    {party.email && (
+                      <div className="flex justify-between">
+                        <span className="font-medium text-gray-500">Email:</span>
+                        <span className="text-gray-800 truncate max-w-[200px]">{party.email}</span>
+                      </div>
+                    )}
+                    {party.address && (
+                      <div className="flex justify-between">
+                        <span className="font-medium text-gray-500">Address:</span>
+                        <span className="text-gray-800 text-right max-w-[200px]">{party.address}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-100">
+                    <span className="text-xs font-medium text-gray-500 block mb-1.5">Favourite Colours:</span>
+                    {party.favourite_colours && party.favourite_colours.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {party.favourite_colours.map((c, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs text-gray-700">
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">None selected</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
