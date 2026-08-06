@@ -1,465 +1,509 @@
-import React, { useEffect, useState } from 'react';
-import { supabase } from './services/supabase';
-import { 
-  Layers, 
-  Search, 
-  Save, 
-  Filter, 
-  Loader2, 
-  CheckCircle2, 
-  AlertCircle, 
-  RefreshCw 
-} from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import { supabase } from "./services/supabase";
+import {
+  Save,
+  RefreshCw,
+  Plus,
+  Trash2,
+  MoveUp,
+  MoveDown,
+  Layers,
+  Search,
+  CheckCircle2,
+  AlertCircle
+} from "lucide-react";
 
-interface Party {
-  id: string;
-  party_name?: string;
-  name?: string;
-  party?: string;
-}
+type Party = {
+  id: number;
+  name: string;
+};
 
-interface Colour {
-  id: string;
+type Colour = {
+  id: number;
+  colour_name: string;
+};
+
+type ProgramItem = {
+  id?: number;
+  party_id?: number;
+  colour_id: number;
   colour_name?: string;
-  color_name?: string;
-  name?: string;
-}
-
-interface PartyProgramLayoutRow {
-  id: string;
-  party_id?: string;
-  colour_id?: string;
-  color_id?: string;
-  order1?: string | number | null;
-  order2?: string | number | null;
-  order3?: string | number | null;
-  party_name?: string;
-  colour_name?: string;
-}
-
-interface EditState {
-  order1: string;
-  order2: string;
-  order3: string;
-}
+  order1?: number;
+  order2?: number;
+  order3?: number;
+};
 
 export default function PartyProgramLayout() {
-  const [loading, setLoading] = useState<boolean>(true);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [layouts, setLayouts] = useState<PartyProgramLayoutRow[]>([]);
-  const [partiesList, setPartiesList] = useState<{ id: string; party_name: string }[]>([]);
-  const [selectedParty, setSelectedParty] = useState<string>('ALL');
-  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [parties, setParties] = useState<Party[]>([]);
+  const [colours, setColours] = useState<Colour[]>([]);
+  const [selectedPartyId, setSelectedPartyId] = useState<number | null>(null);
   
-  const [editedData, setEditedData] = useState<Record<string, EditState>>({});
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [programItems, setProgramItems] = useState<ProgramItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [searchTerm, setSearchTerm] = useState<string>("");
 
   useEffect(() => {
     fetchInitialData();
   }, []);
 
-  const fetchInitialData = async () => {
+  useEffect(() => {
+    if (selectedPartyId) {
+      loadPartyLayout(selectedPartyId);
+    } else {
+      setProgramItems([]);
+    }
+  }, [selectedPartyId]);
+
+  // 1. Load Parties and Colours
+  async function fetchInitialData() {
     setLoading(true);
-    setErrorMessage(null);
     try {
-      // 1. Fetch tables independently to avoid foreign key joining errors
-      const [partiesRes, coloursRes, layoutRes] = await Promise.all([
-        supabase.from('parties').select('*'),
-        supabase.from('colours').select('*'),
-        supabase.from('party_program_layout').select('*')
-      ]);
+      const { data: partiesData, error: partiesErr } = await supabase
+        .from("parties")
+        .select("id, name")
+        .order("name", { ascending: true });
 
-      if (partiesRes.error) throw partiesRes.error;
-      if (coloursRes.error) throw coloursRes.error;
-      if (layoutRes.error) throw layoutRes.error;
+      const { data: coloursData, error: coloursErr } = await supabase
+        .from("colours")
+        .select("id, colour_name")
+        .order("colour_name", { ascending: true });
 
-      // Build quick lookup maps
-      const partyMap = new Map<string, string>();
-      const formattedPartiesList: { id: string; party_name: string }[] = [];
+      if (partiesErr) console.error("Error fetching parties:", partiesErr);
+      if (coloursErr) console.error("Error fetching colours:", coloursErr);
 
-      (partiesRes.data || []).forEach((p: any) => {
-        const name = p.party_name || p.name || p.party || 'Unnamed Party';
-        partyMap.set(String(p.id), name);
-        formattedPartiesList.push({ id: String(p.id), party_name: name });
-      });
+      console.log("Trace 1: Loaded Colours Table:", coloursData);
 
-      formattedPartiesList.sort((a, b) => a.party_name.localeCompare(b.party_name));
-      setPartiesList(formattedPartiesList);
-
-      const colourMap = new Map<string, string>();
-      (coloursRes.data || []).forEach((c: any) => {
-        const name = c.colour_name || c.color_name || c.name || 'Unnamed Colour';
-        colourMap.set(String(c.id), name);
-      });
-
-      // Map relationships manually in memory
-      const formattedLayouts: PartyProgramLayoutRow[] = (layoutRes.data || []).map((item: any) => {
-        const pId = item.party_id !== undefined && item.party_id !== null ? String(item.party_id) : '';
-        const cId = (item.colour_id || item.color_id) !== undefined && (item.colour_id || item.color_id) !== null 
-          ? String(item.colour_id || item.color_id) 
-          : '';
-
-        return {
-          ...item,
-          party_name: partyMap.get(pId) || item.party_name || 'N/A',
-          colour_name: colourMap.get(cId) || item.colour_name || 'N/A'
-        };
-      });
-
-      setLayouts(formattedLayouts);
-
-      const initialEdits: Record<string, EditState> = {};
-      formattedLayouts.forEach((row) => {
-        initialEdits[row.id] = {
-          order1: row.order1 !== null && row.order1 !== undefined ? String(row.order1) : '',
-          order2: row.order2 !== null && row.order2 !== undefined ? String(row.order2) : '',
-          order3: row.order3 !== null && row.order3 !== undefined ? String(row.order3) : ''
-        };
-      });
-      setEditedData(initialEdits);
-
-    } catch (err: any) {
-      console.error('Error fetching Party Program Layouts:', err);
-      setErrorMessage(err.message || 'Failed to load party program layout data.');
+      if (partiesData) setParties(partiesData);
+      if (coloursData) setColours(coloursData);
+    } catch (err) {
+      console.error("Initial data load error:", err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleFieldChange = (id: string, field: keyof EditState, value: string) => {
-    setEditedData((prev) => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        [field]: value
-      }
-    }));
-  };
-
-  const handleSaveRow = async (row: PartyProgramLayoutRow) => {
-    const edit = editedData[row.id];
-    if (!edit) return;
-
-    setSavingId(row.id);
-    setSuccessMessage(null);
-    setErrorMessage(null);
-
-    try {
-      const { error } = await supabase
-        .from('party_program_layout')
-        .update({
-          order1: edit.order1 === '' ? null : edit.order1,
-          order2: edit.order2 === '' ? null : edit.order2,
-          order3: edit.order3 === '' ? null : edit.order3
-        })
-        .eq('id', row.id);
-
-      if (error) throw error;
-
-      setLayouts((prev) =>
-        prev.map((item) =>
-          item.id === row.id
-            ? {
-                ...item,
-                order1: edit.order1 === '' ? null : edit.order1,
-                order2: edit.order2 === '' ? null : edit.order2,
-                order3: edit.order3 === '' ? null : edit.order3
-              }
-            : item
-        )
-      );
-
-      setSuccessMessage(`Layout orders for ${row.party_name} saved successfully!`);
-      setTimeout(() => setSuccessMessage(null), 4000);
-    } catch (err: any) {
-      console.error('Error saving party program layout:', err);
-      setErrorMessage(err.message || 'Failed to save changes. Please try again.');
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const filteredLayouts = layouts.filter((row) => {
-    const matchesParty =
-      selectedParty === 'ALL' ||
-      String(row.party_id) === selectedParty ||
-      row.party_name?.toLowerCase() === selectedParty.toLowerCase();
-
-    const matchesSearch =
-      row.party_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      row.colour_name?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    return matchesParty && matchesSearch;
-  });
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[70vh]">
-        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-3" />
-        <p className="text-slate-600 text-sm font-medium">Loading Party Program Layouts...</p>
-      </div>
-    );
   }
 
+  // 2. Build programItems from DB
+  async function loadPartyLayout(partyId: number) {
+    console.log("Trace 2: Selected Party ID:", partyId);
+    setLoading(true);
+    try {
+      const { data: layoutData, error: layoutError } = await supabase
+        .from("party_program_layout")
+        .select("*")
+        .eq("party_id", partyId);
+
+      console.log("Trace 2: Raw Party Program Layout from DB:", layoutData);
+      console.log("Trace 2: Party Program Layout Error:", layoutError);
+
+      if (layoutError) {
+        alert("Error loading layout: " + layoutError.message);
+        return;
+      }
+
+      if (layoutData && layoutData.length > 0) {
+        // Map layout rows using only colour_id
+        const mappedItems: ProgramItem[] = layoutData.map((row: any) => {
+          const rawColourId = row.colour_id;
+          const foundColour = colours.find((c) => c.id === rawColourId);
+
+          return {
+            id: row.id,
+            party_id: row.party_id,
+            colour_id: Number(rawColourId),
+            colour_name: row.colour_name || foundColour?.colour_name || "",
+            order1: row.order1 || 0,
+            order2: row.order2 || 0,
+            order3: row.order3 || 0,
+          };
+        });
+
+        console.log("Trace 2: Built programItems from DB:", mappedItems);
+        setProgramItems(mappedItems);
+      } else {
+        console.log("Trace 2: No layout found for Party ID:", partyId);
+        setProgramItems([]);
+      }
+    } catch (err) {
+      console.error("Error loading layout:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Add Row (Preserving or resolving colour_id)
+  function handleAddColour(colourId: number) {
+    const selectedColourObj = colours.find((c) => c.id === colourId);
+    if (!selectedColourObj) return;
+
+    const newItem: ProgramItem = {
+      party_id: selectedPartyId || undefined,
+      colour_id: selectedColourObj.id, // Explicitly assign valid numeric colour_id
+      colour_name: selectedColourObj.colour_name,
+      order1: 0,
+      order2: 0,
+      order3: 0,
+    };
+
+    const updatedList = [...programItems, newItem];
+    console.log("Trace 3: Adding row. Updated programItems:", updatedList);
+    setProgramItems(updatedList);
+  }
+
+  // Change Colour on existing Row
+  function handleColourChange(index: number, newColourId: number) {
+    const selectedColourObj = colours.find((c) => c.id === newColourId);
+    if (!selectedColourObj) return;
+
+    const updated = [...programItems];
+    updated[index] = {
+      ...updated[index],
+      colour_id: selectedColourObj.id, // Explicitly update colour_id
+      colour_name: selectedColourObj.colour_name,
+    };
+
+    console.log("Trace 3: Changed row color. Updated programItems:", updated);
+    setProgramItems(updated);
+  }
+
+  function handleOrderChange(index: number, field: "order1" | "order2" | "order3", val: number) {
+    const updated = [...programItems];
+    updated[index] = {
+      ...updated[index],
+      [field]: val,
+    };
+    setProgramItems(updated);
+  }
+
+  function handleRemoveItem(index: number) {
+    const updated = programItems.filter((_, i) => i !== index);
+    console.log("Trace 3: Removed row. Updated programItems:", updated);
+    setProgramItems(updated);
+  }
+
+  function handleMoveUp(index: number) {
+    if (index === 0) return;
+    const updated = [...programItems];
+    const temp = updated[index - 1];
+    updated[index - 1] = updated[index];
+    updated[index] = temp;
+    setProgramItems(updated);
+  }
+
+  function handleMoveDown(index: number) {
+    if (index === programItems.length - 1) return;
+    const updated = [...programItems];
+    const temp = updated[index + 1];
+    updated[index + 1] = updated[index];
+    updated[index] = temp;
+    setProgramItems(updated);
+  }
+
+  // 4. Save Layout
+  async function handleSaveLayout() {
+    if (!selectedPartyId) {
+      alert("Please select a party first.");
+      return;
+    }
+
+    console.log("Trace 4: Pre-save programItems state:", programItems);
+    console.log("Trace 4: Selected Party ID for save:", selectedPartyId);
+
+    // Filter valid rows ensuring colour_id is numeric and not null/undefined
+    const validRowsToSave = programItems
+      .filter((item) => item.colour_id !== null && item.colour_id !== undefined && !isNaN(item.colour_id))
+      .map((item, idx) => ({
+        party_id: selectedPartyId,
+        colour_id: Number(item.colour_id),
+        order1: item.order1 || idx + 1,
+        order2: item.order2 || 0,
+        order3: item.order3 || 0,
+      }));
+
+    console.log("Trace 4: Rows being saved to Supabase:", validRowsToSave);
+
+    if (validRowsToSave.length === 0) {
+      alert("No valid colour IDs found to save.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Clear old layout for party
+      const { error: deleteError } = await supabase
+        .from("party_program_layout")
+        .delete()
+        .eq("party_id", selectedPartyId);
+
+      if (deleteError) {
+        throw new Error("Failed to clear existing layout: " + deleteError.message);
+      }
+
+      // Insert new rows
+      const { data: insertedData, error: insertError } = await supabase
+        .from("party_program_layout")
+        .insert(validRowsToSave)
+        .select();
+
+      if (insertError) {
+        throw new Error("Failed to save layout: " + insertError.message);
+      }
+
+      console.log("Trace 4: Save successful. Returned Data:", insertedData);
+      alert("Party Program Layout saved successfully!");
+      
+      // Reload updated layout
+      loadPartyLayout(selectedPartyId);
+    } catch (err: any) {
+      console.error("Save Layout Error:", err);
+      alert(err.message || "An error occurred while saving layout.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const filteredColours = colours.filter((c) =>
+    c.colour_name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto w-full box-border">
+    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-100 flex-shrink-0">
-            <Layers className="w-6 h-6 text-purple-600" />
+          <div className="p-2.5 bg-blue-50 rounded-xl border border-blue-100">
+            <Layers className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Party Program Layout</h1>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Party Program Layout</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Configure production order sequencing for party-specific colour schemes.
+              Configure default color sequences for printing programs
             </p>
           </div>
         </div>
 
-        <button
-          onClick={fetchInitialData}
-          className="w-full md:w-auto inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
-        >
-          <RefreshCw className="w-4 h-4 mr-2 text-slate-500" />
-          Reload Data
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => selectedPartyId && loadPartyLayout(selectedPartyId)}
+            disabled={!selectedPartyId || loading}
+            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 text-slate-500 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+
+          <button
+            onClick={handleSaveLayout}
+            disabled={!selectedPartyId || saving || programItems.length === 0}
+            className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {saving ? "Saving..." : "Save Layout"}
+          </button>
+        </div>
       </div>
 
-      {/* Notifications */}
-      {successMessage && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-between shadow-sm">
-          <div className="flex items-center space-x-3">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-            <span className="text-sm font-medium">{successMessage}</span>
-          </div>
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center justify-between shadow-sm">
-          <div className="flex items-center space-x-3">
-            <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
-            <span className="text-sm font-medium">{errorMessage}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Filters Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Filter className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
+      {/* Main Content Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: Party Selection & Color Palette */}
+        <div className="space-y-6">
+          {/* Party Picker */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Select Party
+            </label>
             <select
-              value={selectedParty}
-              onChange={(e) => setSelectedParty(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium"
+              value={selectedPartyId || ""}
+              onChange={(e) => setSelectedPartyId(Number(e.target.value) || null)}
+              className="w-full p-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium"
             >
-              <option value="ALL">All Parties ({partiesList.length})</option>
-              {partiesList.map((p) => (
+              <option value="">-- Choose Party --</option>
+              {parties.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.party_name}
+                  {p.name}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search party or colour..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800"
-            />
+          {/* Add Colour Panel */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Available Colours
+              </label>
+              <span className="text-xs text-slate-400 font-semibold">{colours.length} Total</span>
+            </div>
+
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search colour..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="max-h-[360px] overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50/50">
+              {filteredColours.length > 0 ? (
+                filteredColours.map((c) => (
+                  <div
+                    key={c.id}
+                    className="p-2.5 flex items-center justify-between hover:bg-white transition-colors text-xs text-slate-700"
+                  >
+                    <span className="font-semibold text-slate-800">{c.colour_name}</span>
+                    <button
+                      disabled={!selectedPartyId}
+                      onClick={() => handleAddColour(c.id)}
+                      className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="p-4 text-center text-xs text-slate-400">No colours found</div>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="text-xs text-slate-500 font-medium self-start md:self-center">
-          Showing <span className="font-bold text-slate-800">{filteredLayouts.length}</span> entries
-        </div>
-      </div>
-
-      {/* Main Container */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full">
-        {filteredLayouts.length === 0 ? (
-          <div className="p-12 text-center flex flex-col items-center justify-center">
-            <AlertCircle className="w-10 h-10 text-slate-300 mb-3" />
-            <h3 className="text-base font-semibold text-slate-800">No Program Layout Records Found</h3>
-            <p className="text-sm text-slate-500 mt-1 max-w-md">
-              {selectedParty !== 'ALL' || searchTerm
-                ? 'No layouts matched your filter criteria. Try clearing search filters.'
-                : 'There are no party program layout records currently available in the database.'}
-            </p>
+        {/* Right Column: Program Items List */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-slate-900 text-base">Program Sequence</h2>
+              <p className="text-xs text-slate-500">
+                {selectedPartyId
+                  ? `Configuring layout for party ID: ${selectedPartyId}`
+                  : "Please select a party to begin"}
+              </p>
+            </div>
+            <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full">
+              {programItems.length} Items
+            </span>
           </div>
-        ) : (
-          <>
-            {/* Desktop Table View (>= 640px) */}
-            <div className="hidden sm:block overflow-x-auto w-full">
-              <table className="w-full text-left border-collapse text-sm min-w-[650px]">
+
+          <div className="p-4 flex-1 overflow-x-auto">
+            {programItems.length > 0 ? (
+              <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500 bg-slate-50 text-xs uppercase font-semibold">
-                    <th className="py-3.5 px-4 sm:px-6">Party Name</th>
-                    <th className="py-3.5 px-4 sm:px-6">Colour Name</th>
-                    <th className="py-3.5 px-4 sm:px-6 min-w-[110px]">Order 1</th>
-                    <th className="py-3.5 px-4 sm:px-6 min-w-[110px]">Order 2</th>
-                    <th className="py-3.5 px-4 sm:px-6 min-w-[110px]">Order 3</th>
-                    <th className="py-3.5 px-4 sm:px-6 text-right min-w-[90px]">Action</th>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <th className="py-2.5 px-3">#</th>
+                    <th className="py-2.5 px-3">Colour Name</th>
+                    <th className="py-2.5 px-3">Colour ID</th>
+                    <th className="py-2.5 px-3">Order 1</th>
+                    <th className="py-2.5 px-3">Order 2</th>
+                    <th className="py-2.5 px-3">Order 3</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredLayouts.map((row) => {
-                    const currentEdit = editedData[row.id] || {
-                      order1: row.order1 !== null && row.order1 !== undefined ? String(row.order1) : '',
-                      order2: row.order2 !== null && row.order2 !== undefined ? String(row.order2) : '',
-                      order3: row.order3 !== null && row.order3 !== undefined ? String(row.order3) : ''
-                    };
-
-                    const isRowSaving = savingId === row.id;
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {programItems.map((item, index) => {
+                    console.log(`Trace 3: Rendering Row ${index + 1}:`, item);
 
                     return (
-                      <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-4 px-4 sm:px-6 font-semibold text-slate-900 whitespace-nowrap">
-                          {row.party_name}
-                        </td>
-                        <td className="py-4 px-4 sm:px-6 text-slate-700 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                            {row.colour_name}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 sm:px-6">
-                          <input
-                            type="text"
-                            value={currentEdit.order1}
-                            onChange={(e) => handleFieldChange(row.id, 'order1', e.target.value)}
-                            placeholder="Order 1"
-                            className="w-full min-w-[80px] px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
-                          />
-                        </td>
-                        <td className="py-4 px-4 sm:px-6">
-                          <input
-                            type="text"
-                            value={currentEdit.order2}
-                            onChange={(e) => handleFieldChange(row.id, 'order2', e.target.value)}
-                            placeholder="Order 2"
-                            className="w-full min-w-[80px] px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
-                          />
-                        </td>
-                        <td className="py-4 px-4 sm:px-6">
-                          <input
-                            type="text"
-                            value={currentEdit.order3}
-                            onChange={(e) => handleFieldChange(row.id, 'order3', e.target.value)}
-                            placeholder="Order 3"
-                            className="w-full min-w-[80px] px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
-                          />
-                        </td>
-                        <td className="py-4 px-4 sm:px-6 text-right">
-                          <button
-                            onClick={() => handleSaveRow(row)}
-                            disabled={isRowSaving}
-                            className="inline-flex items-center justify-center px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors shadow-sm"
+                      <tr key={index} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3 font-semibold text-slate-400">{index + 1}</td>
+                        <td className="py-2.5 px-3">
+                          <select
+                            value={item.colour_id || ""}
+                            onChange={(e) => handleColourChange(index, Number(e.target.value))}
+                            className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded font-semibold text-slate-800"
                           >
-                            {isRowSaving ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                                Saving...
-                              </>
-                            ) : (
-                              <>
-                                <Save className="w-3.5 h-3.5 mr-1.5" />
-                                Save
-                              </>
-                            )}
-                          </button>
+                            <option value="">Select Colour</option>
+                            {colours.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.colour_name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-500">
+                          {item.colour_id ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700">
+                              {item.colour_id}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-red-100 text-red-700">
+                              <AlertCircle className="w-3 h-3 mr-1" />
+                              Missing
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <input
+                            type="number"
+                            value={item.order1 || 0}
+                            onChange={(e) =>
+                              handleOrderChange(index, "order1", Number(e.target.value))
+                            }
+                            className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
+                          />
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <input
+                            type="number"
+                            value={item.order2 || 0}
+                            onChange={(e) =>
+                              handleOrderChange(index, "order2", Number(e.target.value))
+                            }
+                            className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
+                          />
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <input
+                            type="number"
+                            value={item.order3 || 0}
+                            onChange={(e) =>
+                              handleOrderChange(index, "order3", Number(e.target.value))
+                            }
+                            className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
+                          />
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => handleMoveUp(index)}
+                              disabled={index === 0}
+                              className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded hover:bg-slate-200"
+                            >
+                              <MoveUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleMoveDown(index)}
+                              disabled={index === programItems.length - 1}
+                              className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 rounded hover:bg-slate-200"
+                            >
+                              <MoveDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleRemoveItem(index)}
+                              className="p-1 text-red-500 hover:text-red-700 rounded hover:bg-red-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-            </div>
-
-            {/* Mobile Cards View (< 640px) */}
-            <div className="block sm:hidden p-4 space-y-4 bg-slate-50">
-              {filteredLayouts.map((row) => {
-                const currentEdit = editedData[row.id] || {
-                  order1: row.order1 !== null && row.order1 !== undefined ? String(row.order1) : '',
-                  order2: row.order2 !== null && row.order2 !== undefined ? String(row.order2) : '',
-                  order3: row.order3 !== null && row.order3 !== undefined ? String(row.order3) : ''
-                };
-
-                const isRowSaving = savingId === row.id;
-
-                return (
-                  <div key={row.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <span className="font-bold text-slate-900 text-base">{row.party_name}</span>
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                        {row.colour_name}
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Order 1</label>
-                        <input
-                          type="text"
-                          value={currentEdit.order1}
-                          onChange={(e) => handleFieldChange(row.id, 'order1', e.target.value)}
-                          placeholder="Order 1"
-                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Order 2</label>
-                        <input
-                          type="text"
-                          value={currentEdit.order2}
-                          onChange={(e) => handleFieldChange(row.id, 'order2', e.target.value)}
-                          placeholder="Order 2"
-                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Order 3</label>
-                        <input
-                          type="text"
-                          value={currentEdit.order3}
-                          onChange={(e) => handleFieldChange(row.id, 'order3', e.target.value)}
-                          placeholder="Order 3"
-                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 shadow-sm"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleSaveRow(row)}
-                      disabled={isRowSaving}
-                      className="w-full inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors shadow-sm pt-2.5 pb-2.5"
-                    >
-                      {isRowSaving ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-4 h-4 mr-2" />
-                          Save
-                        </>
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+            ) : (
+              <div className="p-12 text-center text-slate-400 space-y-2">
+                <Layers className="w-8 h-8 mx-auto text-slate-300" />
+                <p className="text-sm font-medium">No program items configured for this party.</p>
+                <p className="text-xs text-slate-400">
+                  Select colours from the left panel to build the layout.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
