@@ -27,9 +27,6 @@ type ProgramItem = {
   party_id?: number;
   colour_id: number;
   colour_name?: string;
-  order1?: number;
-  order2?: number;
-  order3?: number;
 };
 
 export default function PartyProgramLayout() {
@@ -110,9 +107,6 @@ export default function PartyProgramLayout() {
             party_id: row.party_id,
             colour_id: Number(rawColourId),
             colour_name: row.colour_name || foundColour?.colour_name || "",
-            order1: row.order1 || 0,
-            order2: row.order2 || 0,
-            order3: row.order3 || 0,
           };
         });
 
@@ -138,9 +132,6 @@ export default function PartyProgramLayout() {
       party_id: selectedPartyId || undefined,
       colour_id: selectedColourObj.id,
       colour_name: selectedColourObj.colour_name,
-      order1: 0,
-      order2: 0,
-      order3: 0,
     };
 
     const updatedList = [...programItems, newItem];
@@ -161,19 +152,6 @@ export default function PartyProgramLayout() {
     };
 
     console.log("Trace 3: Changed row color. Updated programItems:", updated);
-    setProgramItems(updated);
-  }
-
-  function handleOrderChange(
-    index: number,
-    field: "order1" | "order2" | "order3",
-    val: number
-  ) {
-    const updated = [...programItems];
-    updated[index] = {
-      ...updated[index],
-      [field]: val,
-    };
     setProgramItems(updated);
   }
 
@@ -218,12 +196,9 @@ export default function PartyProgramLayout() {
           item.colour_id !== undefined &&
           !isNaN(item.colour_id)
       )
-      .map((item, idx) => ({
+      .map((item) => ({
         party_id: selectedPartyId,
         colour_id: Number(item.colour_id),
-        order1: item.order1 || idx + 1,
-        order2: item.order2 || 0,
-        order3: item.order3 || 0,
       }));
 
     console.log("Trace 4: Rows being saved to Supabase:", validRowsToSave);
@@ -414,9 +389,6 @@ export default function PartyProgramLayout() {
                     <th className="py-2.5 px-3">#</th>
                     <th className="py-2.5 px-3">Colour Name</th>
                     <th className="py-2.5 px-3">Colour ID</th>
-                    <th className="py-2.5 px-3">Order 1</th>
-                    <th className="py-2.5 px-3">Order 2</th>
-                    <th className="py-2.5 px-3">Order 3</th>
                     <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -459,48 +431,6 @@ export default function PartyProgramLayout() {
                               Missing
                             </span>
                           )}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="number"
-                            value={item.order1 || 0}
-                            onChange={(e) =>
-                              handleOrderChange(
-                                index,
-                                "order1",
-                                Number(e.target.value)
-                              )
-                            }
-                            className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="number"
-                            value={item.order2 || 0}
-                            onChange={(e) =>
-                              handleOrderChange(
-                                index,
-                                "order2",
-                                Number(e.target.value)
-                              )
-                            }
-                            className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="number"
-                            value={item.order3 || 0}
-                            onChange={(e) =>
-                              handleOrderChange(
-                                index,
-                                "order3",
-                                Number(e.target.value)
-                              )
-                            }
-                            className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
-                          />
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <div className="flex items-center justify-end gap-1">
