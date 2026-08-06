@@ -9,7 +9,6 @@ import {
   MoveDown,
   Layers,
   Search,
-  CheckCircle2,
   AlertCircle
 } from "lucide-react";
 
@@ -37,7 +36,7 @@ export default function PartyProgramLayout() {
   const [parties, setParties] = useState<Party[]>([]);
   const [colours, setColours] = useState<Colour[]>([]);
   const [selectedPartyId, setSelectedPartyId] = useState<number | null>(null);
-  
+
   const [programItems, setProgramItems] = useState<ProgramItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -102,7 +101,6 @@ export default function PartyProgramLayout() {
       }
 
       if (layoutData && layoutData.length > 0) {
-        // Map layout rows using only colour_id
         const mappedItems: ProgramItem[] = layoutData.map((row: any) => {
           const rawColourId = row.colour_id;
           const foundColour = colours.find((c) => c.id === rawColourId);
@@ -131,14 +129,14 @@ export default function PartyProgramLayout() {
     }
   }
 
-  // Add Row (Preserving or resolving colour_id)
+  // Add Row by picking a colour
   function handleAddColour(colourId: number) {
     const selectedColourObj = colours.find((c) => c.id === colourId);
     if (!selectedColourObj) return;
 
     const newItem: ProgramItem = {
       party_id: selectedPartyId || undefined,
-      colour_id: selectedColourObj.id, // Explicitly assign valid numeric colour_id
+      colour_id: selectedColourObj.id,
       colour_name: selectedColourObj.colour_name,
       order1: 0,
       order2: 0,
@@ -150,7 +148,7 @@ export default function PartyProgramLayout() {
     setProgramItems(updatedList);
   }
 
-  // Change Colour on existing Row
+  // Change Colour on an existing Row
   function handleColourChange(index: number, newColourId: number) {
     const selectedColourObj = colours.find((c) => c.id === newColourId);
     if (!selectedColourObj) return;
@@ -158,7 +156,7 @@ export default function PartyProgramLayout() {
     const updated = [...programItems];
     updated[index] = {
       ...updated[index],
-      colour_id: selectedColourObj.id, // Explicitly update colour_id
+      colour_id: selectedColourObj.id,
       colour_name: selectedColourObj.colour_name,
     };
 
@@ -166,7 +164,11 @@ export default function PartyProgramLayout() {
     setProgramItems(updated);
   }
 
-  function handleOrderChange(index: number, field: "order1" | "order2" | "order3", val: number) {
+  function handleOrderChange(
+    index: number,
+    field: "order1" | "order2" | "order3",
+    val: number
+  ) {
     const updated = [...programItems];
     updated[index] = {
       ...updated[index],
@@ -209,9 +211,13 @@ export default function PartyProgramLayout() {
     console.log("Trace 4: Pre-save programItems state:", programItems);
     console.log("Trace 4: Selected Party ID for save:", selectedPartyId);
 
-    // Filter valid rows ensuring colour_id is numeric and not null/undefined
     const validRowsToSave = programItems
-      .filter((item) => item.colour_id !== null && item.colour_id !== undefined && !isNaN(item.colour_id))
+      .filter(
+        (item) =>
+          item.colour_id !== null &&
+          item.colour_id !== undefined &&
+          !isNaN(item.colour_id)
+      )
       .map((item, idx) => ({
         party_id: selectedPartyId,
         colour_id: Number(item.colour_id),
@@ -229,7 +235,6 @@ export default function PartyProgramLayout() {
 
     setSaving(true);
     try {
-      // Clear old layout for party
       const { error: deleteError } = await supabase
         .from("party_program_layout")
         .delete()
@@ -239,7 +244,6 @@ export default function PartyProgramLayout() {
         throw new Error("Failed to clear existing layout: " + deleteError.message);
       }
 
-      // Insert new rows
       const { data: insertedData, error: insertError } = await supabase
         .from("party_program_layout")
         .insert(validRowsToSave)
@@ -251,8 +255,7 @@ export default function PartyProgramLayout() {
 
       console.log("Trace 4: Save successful. Returned Data:", insertedData);
       alert("Party Program Layout saved successfully!");
-      
-      // Reload updated layout
+
       loadPartyLayout(selectedPartyId);
     } catch (err: any) {
       console.error("Save Layout Error:", err);
@@ -275,7 +278,9 @@ export default function PartyProgramLayout() {
             <Layers className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Party Program Layout</h1>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+              Party Program Layout
+            </h1>
             <p className="text-sm text-slate-500 mt-0.5">
               Configure default color sequences for printing programs
             </p>
@@ -288,7 +293,11 @@ export default function PartyProgramLayout() {
             disabled={!selectedPartyId || loading}
             className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm"
           >
-            <RefreshCw className={`w-4 h-4 mr-2 text-slate-500 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 mr-2 text-slate-500 ${
+                loading ? "animate-spin" : ""
+              }`}
+            />
             Refresh
           </button>
 
@@ -303,9 +312,9 @@ export default function PartyProgramLayout() {
         </div>
       </div>
 
-      {/* Main Content Layout */}
+      {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Party Selection & Color Palette */}
+        {/* Left Column: Party Selection & Available Colours */}
         <div className="space-y-6">
           {/* Party Picker */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
@@ -314,7 +323,9 @@ export default function PartyProgramLayout() {
             </label>
             <select
               value={selectedPartyId || ""}
-              onChange={(e) => setSelectedPartyId(Number(e.target.value) || null)}
+              onChange={(e) =>
+                setSelectedPartyId(Number(e.target.value) || null)
+              }
               className="w-full p-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium"
             >
               <option value="">-- Choose Party --</option>
@@ -326,13 +337,15 @@ export default function PartyProgramLayout() {
             </select>
           </div>
 
-          {/* Add Colour Panel */}
+          {/* Available Colours Panel */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                 Available Colours
               </label>
-              <span className="text-xs text-slate-400 font-semibold">{colours.length} Total</span>
+              <span className="text-xs text-slate-400 font-semibold">
+                {colours.length} Total
+              </span>
             </div>
 
             <div className="relative">
@@ -353,7 +366,9 @@ export default function PartyProgramLayout() {
                     key={c.id}
                     className="p-2.5 flex items-center justify-between hover:bg-white transition-colors text-xs text-slate-700"
                   >
-                    <span className="font-semibold text-slate-800">{c.colour_name}</span>
+                    <span className="font-semibold text-slate-800">
+                      {c.colour_name}
+                    </span>
                     <button
                       disabled={!selectedPartyId}
                       onClick={() => handleAddColour(c.id)}
@@ -365,17 +380,21 @@ export default function PartyProgramLayout() {
                   </div>
                 ))
               ) : (
-                <div className="p-4 text-center text-xs text-slate-400">No colours found</div>
+                <div className="p-4 text-center text-xs text-slate-400">
+                  No colours found
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Right Column: Program Items List */}
+        {/* Right Column: Program Items Table */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-slate-900 text-base">Program Sequence</h2>
+              <h2 className="font-bold text-slate-900 text-base">
+                Program Sequence
+              </h2>
               <p className="text-xs text-slate-500">
                 {selectedPartyId
                   ? `Configuring layout for party ID: ${selectedPartyId}`
@@ -406,12 +425,19 @@ export default function PartyProgramLayout() {
                     console.log(`Trace 3: Rendering Row ${index + 1}:`, item);
 
                     return (
-                      <tr key={index} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-2.5 px-3 font-semibold text-slate-400">{index + 1}</td>
+                      <tr
+                        key={index}
+                        className="hover:bg-slate-50/80 transition-colors"
+                      >
+                        <td className="py-2.5 px-3 font-semibold text-slate-400">
+                          {index + 1}
+                        </td>
                         <td className="py-2.5 px-3">
                           <select
                             value={item.colour_id || ""}
-                            onChange={(e) => handleColourChange(index, Number(e.target.value))}
+                            onChange={(e) =>
+                              handleColourChange(index, Number(e.target.value))
+                            }
                             className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded font-semibold text-slate-800"
                           >
                             <option value="">Select Colour</option>
@@ -439,7 +465,11 @@ export default function PartyProgramLayout() {
                             type="number"
                             value={item.order1 || 0}
                             onChange={(e) =>
-                              handleOrderChange(index, "order1", Number(e.target.value))
+                              handleOrderChange(
+                                index,
+                                "order1",
+                                Number(e.target.value)
+                              )
                             }
                             className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
                           />
@@ -449,7 +479,11 @@ export default function PartyProgramLayout() {
                             type="number"
                             value={item.order2 || 0}
                             onChange={(e) =>
-                              handleOrderChange(index, "order2", Number(e.target.value))
+                              handleOrderChange(
+                                index,
+                                "order2",
+                                Number(e.target.value)
+                              )
                             }
                             className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
                           />
@@ -459,7 +493,11 @@ export default function PartyProgramLayout() {
                             type="number"
                             value={item.order3 || 0}
                             onChange={(e) =>
-                              handleOrderChange(index, "order3", Number(e.target.value))
+                              handleOrderChange(
+                                index,
+                                "order3",
+                                Number(e.target.value)
+                              )
                             }
                             className="w-16 p-1 bg-slate-50 border border-slate-300 rounded text-center font-medium text-slate-800"
                           />
@@ -496,7 +534,9 @@ export default function PartyProgramLayout() {
             ) : (
               <div className="p-12 text-center text-slate-400 space-y-2">
                 <Layers className="w-8 h-8 mx-auto text-slate-300" />
-                <p className="text-sm font-medium">No program items configured for this party.</p>
+                <p className="text-sm font-medium">
+                  No program items configured for this party.
+                </p>
                 <p className="text-xs text-slate-400">
                   Select colours from the left panel to build the layout.
                 </p>
