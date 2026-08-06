@@ -14,7 +14,6 @@ import {
   Play,
   Calendar,
   Layers,
-  Inbox,
   Save,
   ChevronLeft,
   ChevronRight,
@@ -229,12 +228,6 @@ export default function ProductionPlanning() {
     );
   }, [unplannedOrderItems, selectedDesignId]);
 
-  // Currently selected item details for auto-fill confirmation
-  const selectedOrderItemDetails = useMemo(() => {
-    if (!selectedOrderItemId) return null;
-    return items.find((i) => i.id === selectedOrderItemId) || null;
-  }, [items, selectedOrderItemId]);
-
   // Action: Assign machine via Modal or Table
   async function assignMachineJob(itemId: number, mId: string, pDate: string) {
     if (!mId) {
@@ -323,58 +316,97 @@ export default function ProductionPlanning() {
     loadData();
   }
 
-  // Fetch ALL colours ordered by the party for the specific design
   async function handlePrintProgram(job: PlannedJob) {
     const partyId = job.order_items?.orders?.parties?.id;
     const designId = job.order_items?.designs?.id;
 
-    let itemsList: Array<{ colour_id?: number; colour: string }> = [];
+    const colourMap = new Map<number, string>();
 
-    if (partyId && designId) {
-      const { data: partyOrderItems, error } = await supabase
-        .from("order_items")
-        .select(`
-          colours (
-            id,
-            colour_name
-          ),
-          orders!inner (
-            party_id
-          )
-        `)
-        .eq("orders.party_id", partyId)
-        .eq("design_id", designId);
+    if (partyId) {
+      // 1. Query party_program_layout directly without foreign-key join
+      const { data: layoutData, error: layoutError } = await supabase
+        .from("party_program_layout")
+        .select("colour_id, order1, order2, order3")
+        .eq("party_id", partyId);
 
-      if (!error && partyOrderItems && partyOrderItems.length > 0) {
-        const uniqueColours = new Map<string, number | undefined>();
+      // Debug logs: Party Program Layout
+      console.log("Party ID:", partyId);
+      console.log("Party Program Layout:", layoutData);
+      console.log("Layout Error:", layoutError);
 
-        (partyOrderItems as any[]).forEach((item) => {
-          if (item.colours?.colour_name) {
-            uniqueColours.set(item.colours.colour_name, item.colours.id);
+      const colourIdsSet = new Set<number>();
+
+      if (!layoutError && layoutData) {
+        layoutData.forEach((row: any) => {
+          if (row.colour_id) {
+            colourIdsSet.add(row.colour_id);
           }
         });
+      }
 
-        itemsList = Array.from(uniqueColours.entries()).map(([colour, colour_id]) => ({
-          colour_id,
-          colour,
-        }));
+      // 2. Query extra non-null colour_ids from order_items if available
+      if (designId) {
+        const { data: extraItems } = await supabase
+          .from("order_items")
+          .select("colour_id, orders!inner(party_id)")
+          .eq("orders.party_id", partyId)
+          .eq("design_id", designId)
+          .not("colour_id", "is", null);
+
+        if (extraItems) {
+          extraItems.forEach((item: any) => {
+            if (item.colour_id) {
+              colourIdsSet.add(item.colour_id);
+            }
+          });
+        }
+      }
+
+      // Include job's own colour_id as potential fallback ID
+      if (job.order_items?.colours?.id) {
+        colourIdsSet.add(job.order_items.colours.id);
+      }
+
+      const uniqueColourIds = Array.from(colourIdsSet);
+
+      // 3. Query colours table separately using .in("id", colourIds)
+      if (uniqueColourIds.length > 0) {
+        const { data: colourRows, error: colourError } = await supabase
+          .from("colours")
+          .select("id, colour_name")
+          .in("id", uniqueColourIds);
+
+        // Debug logs: Colours
+        console.log("Colour IDs:", uniqueColourIds);
+        console.log("Colour Rows:", colourRows);
+        console.log("Colour Error:", colourError);
+
+        if (!colourError && colourRows) {
+          colourRows.forEach((c: any) => {
+            if (c.id && c.colour_name) {
+              colourMap.set(c.id, c.colour_name);
+            }
+          });
+        }
       }
     }
 
-    if (itemsList.length === 0 && job.order_items?.colours?.colour_name) {
-      itemsList = [
-        {
-          colour_id: job.order_items.colours.id,
-          colour: job.order_items.colours.colour_name,
-        },
-      ];
-    }
+    // 4. Build final items list in JavaScript
+    const itemsList: Array<{ colour_id?: number; colour: string }> = Array.from(
+      colourMap.entries()
+    ).map(([colour_id, colour]) => ({
+      colour_id,
+      colour,
+    }));
 
     const machine = job.machines?.machine_number || "";
     const party = job.order_items?.orders?.parties?.name || "";
     const party_id = job.order_items?.orders?.parties?.id || null;
     const design = job.order_items?.designs?.design_name || "";
     const date = job.planned_date || "";
+
+    // Debug log: Final Items sent to Print
+    console.log("Items sent to Print:", itemsList);
 
     navigate("/print-machine-program", {
       state: {
@@ -871,79 +903,74 @@ export default function ProductionPlanning() {
                             </button>
                             <button
                               onClick={() => handlePrintProgram(runningJob)}
-                              className="px-2 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-800 text-white rounded transition-colors shadow-sm"
-                              title="Print Program"
+                              className="px-2 py-1 text-xs font-medium bg-white text-emerald-800 border border-emerald-300 rounded hover:bg-emerald-50 transition-colors inline-flex items-center gap-1"
                             >
                               <Printer className="w-3 h-3" />
+                              Print
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 text-center">
-                          No active design running
+                        <div className="p-3 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400 bg-slate-50/50">
+                          Machine Idle
                         </div>
                       )}
                     </div>
 
-                    {/* QUEUE SECTION */}
+                    {/* QUEUED JOBS SECTION */}
                     <div>
-                      <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                        <span>Queue ({queuedJobs.length})</span>
+                      <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                        Queue ({queuedJobs.length})
                       </div>
 
-                      {queuedJobs.length === 0 ? (
-                        <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-xs text-slate-400 text-center">
-                          Queue is empty
-                        </div>
-                      ) : (
-                        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                          {queuedJobs.map((job, idx) => (
+                      {queuedJobs.length > 0 ? (
+                        <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                          {queuedJobs.map((job) => (
                             <div
                               key={job.id}
-                              className="p-3 bg-white border border-slate-200 rounded-lg shadow-2xs space-y-2 hover:border-slate-300 transition-colors"
+                              className="p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors space-y-1.5"
                             >
                               <div className="flex justify-between items-start">
-                                <div className="flex items-start gap-2">
-                                  <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded mt-0.5">
-                                    #{idx + 1}
-                                  </span>
-                                  <div>
-                                    <div className="font-bold text-slate-900 text-xs">
-                                      {job.order_items?.designs?.design_name || "-"}
-                                    </div>
-                                    <div className="text-xs text-slate-600 font-medium">
-                                      {job.order_items?.orders?.parties?.name || "-"}
-                                    </div>
+                                <div>
+                                  <div className="font-semibold text-slate-900 text-xs">
+                                    {job.order_items?.designs?.design_name || "-"}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {job.order_items?.orders?.parties?.name || "-"}
                                   </div>
                                 </div>
-                                <span className="text-[10px] font-semibold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+                                <span className="text-[10px] font-medium bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
                                   {job.order_items?.quantity} {job.order_items?.unit || "Mtr"}
                                 </span>
                               </div>
 
-                              <div className="text-xs text-slate-500 flex justify-between">
-                                <span>Colour: {job.order_items?.colours?.colour_name || "-"}</span>
-                                <span>{job.planned_date}</span>
+                              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                <span>Clr: {job.order_items?.colours?.colour_name || "-"}</span>
+                                <span>Date: {job.planned_date}</span>
                               </div>
 
-                              <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
+                              <div className="pt-1.5 border-t border-slate-200 flex items-center justify-end gap-1.5">
                                 <button
                                   onClick={() => startProduction(job)}
-                                  className="px-2.5 py-1 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors shadow-sm inline-flex items-center gap-1"
+                                  className="px-2 py-1 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors inline-flex items-center gap-1"
                                 >
-                                  <Play className="w-3 h-3 fill-current" />
+                                  <Play className="w-3 h-3" />
                                   Start
                                 </button>
                                 <button
                                   onClick={() => handlePrintProgram(job)}
-                                  className="px-2 py-1 text-xs font-medium bg-slate-700 hover:bg-slate-800 text-white rounded transition-colors shadow-sm"
-                                  title="Print Program"
+                                  className="px-2 py-1 text-[11px] font-medium bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-100 transition-colors inline-flex items-center gap-1"
                                 >
                                   <Printer className="w-3 h-3" />
+                                  Print
                                 </button>
                               </div>
                             </div>
                           ))}
+                        </div>
+                      ) : (
+                        <div className="p-3 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">
+                          No queued jobs
                         </div>
                       )}
                     </div>
@@ -954,219 +981,165 @@ export default function ProductionPlanning() {
         </div>
       )}
 
-      {/* VIEW 2: TABLES */}
+      {/* TABLE VIEWS (UNPLANNED, PLANNED, RUNNING, COMPLETED) */}
       {activeTab !== "board" && (
-        <div className="bg-white rounded-b-xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
-          {paginatedRows.length === 0 ? (
-            <div className="p-12 text-center flex flex-col items-center justify-center">
-              <Inbox className="w-12 h-12 text-slate-300 mb-3" />
-              <p className="text-base font-semibold text-slate-800">No Orders Found</p>
-              <p className="text-xs text-slate-500 mt-1">
-                There are no orders in the <span className="capitalize font-semibold">{activeTab}</span> status matching your current filter.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto max-h-[600px]">
-              <table className="w-full text-left border-collapse text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="py-3.5 px-5">Design</th>
-                    <th className="py-3.5 px-5">Party</th>
-                    <th className="py-3.5 px-5">Order No</th>
-                    <th className="py-3.5 px-5">Colour</th>
-                    <th className="py-3.5 px-5">Quantity</th>
-                    <th className="py-3.5 px-5">Machine</th>
-                    <th className="py-3.5 px-5">Status</th>
-                    <th className="py-3.5 px-5 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {activeTab === "unplanned"
-                    ? (paginatedRows as OrderItem[]).map((item, idx) => (
-                        <tr
-                          key={item.id}
-                          className={`transition-colors hover:bg-blue-50/50 ${
-                            idx % 2 === 1 ? "bg-slate-50/50" : "bg-white"
-                          }`}
-                        >
-                          <td className="py-3.5 px-5 font-bold text-slate-900">
-                            {item.designs?.design_name || "-"}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="py-3 px-4">Order / Party</th>
+                  <th className="py-3 px-4">Design</th>
+                  <th className="py-3 px-4">Colour</th>
+                  <th className="py-3 px-4">Quantity</th>
+                  <th className="py-3 px-4">Target Date</th>
+                  {activeTab === "unplanned" && <th className="py-3 px-4">Assign Machine</th>}
+                  {activeTab !== "unplanned" && <th className="py-3 px-4">Machine</th>}
+                  {activeTab !== "unplanned" && <th className="py-3 px-4">Status</th>}
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                {paginatedRows.length > 0 ? (
+                  paginatedRows.map((row: any) => {
+                    const isUnplanned = activeTab === "unplanned";
+                    const orderItem = isUnplanned ? row : row.order_items;
+
+                    return (
+                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 font-medium text-slate-900">
+                          <div>Order #{orderItem?.orders?.order_no || "-"}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {orderItem?.orders?.parties?.name || "-"}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-800">
+                          {orderItem?.designs?.design_name || "-"}
+                        </td>
+                        <td className="py-3 px-4">{orderItem?.colours?.colour_name || "-"}</td>
+                        <td className="py-3 px-4 font-medium">
+                          {orderItem?.quantity} {orderItem?.unit || "Mtr"}
+                        </td>
+                        <td className="py-3 px-4 text-slate-500">
+                          {isUnplanned ? orderItem?.orders?.delivery_date || "-" : row.planned_date || "-"}
+                        </td>
+
+                        {isUnplanned && (
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={selectedMachine[row.id] || ""}
+                                onChange={(e) =>
+                                  setSelectedMachine({ ...selectedMachine, [row.id]: e.target.value })
+                                }
+                                className="px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs text-slate-700"
+                              >
+                                <option value="">Select Machine</option>
+                                {machines.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.machine_number}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="date"
+                                value={plannedDate[row.id] || todayStr}
+                                onChange={(e) =>
+                                  setPlannedDate({ ...plannedDate, [row.id]: e.target.value })
+                                }
+                                className="px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs text-slate-700"
+                              />
+                            </div>
                           </td>
+                        )}
 
-                          <td className="py-3.5 px-5 font-medium text-slate-800">
-                            {item.orders?.parties?.name || "-"}
+                        {!isUnplanned && (
+                          <td className="py-3 px-4 font-semibold text-slate-800">
+                            {row.machines?.machine_number || "-"}
                           </td>
+                        )}
 
-                          <td className="py-3.5 px-5 text-slate-600 font-mono text-xs">
-                            #{item.orders?.order_no || "-"}
-                          </td>
+                        {!isUnplanned && <td className="py-3 px-4">{renderStatusBadge(row.status)}</td>}
 
-                          <td className="py-3.5 px-5 text-slate-700">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                              {item.colours?.colour_name || "-"}
-                            </span>
-                          </td>
-
-                          <td className="py-3.5 px-5 font-semibold text-slate-900">
-                            {item.quantity}{" "}
-                            <span className="text-xs text-slate-500 font-normal">
-                              {item.unit || "Mtr"}
-                            </span>
-                          </td>
-
-                          <td className="py-3.5 px-5 min-w-[200px]">
-                            <select
-                              className="w-full text-xs border border-slate-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium shadow-sm"
-                              value={selectedMachine[item.id] || ""}
-                              onChange={(e) =>
-                                setSelectedMachine({
-                                  ...selectedMachine,
-                                  [item.id]: e.target.value,
-                                })
-                              }
-                            >
-                              <option value="">Select Machine</option>
-                              {machines.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {`${m.machine_number} | ${m.status || "-"} | ${
-                                    m.current_design || "-"
-                                  }`}
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              type="date"
-                              className="w-full text-xs border border-slate-300 rounded-lg p-1.5 mt-1 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium shadow-sm"
-                              value={plannedDate[item.id] || todayStr}
-                              onChange={(e) =>
-                                setPlannedDate({
-                                  ...plannedDate,
-                                  [item.id]: e.target.value,
-                                })
-                              }
-                            />
-                          </td>
-
-                          <td className="py-3.5 px-5">{renderStatusBadge("Unplanned")}</td>
-
-                          <td className="py-3.5 px-5 text-right">
+                        <td className="py-3 px-4 text-right">
+                          {isUnplanned ? (
                             <button
                               onClick={() =>
                                 assignMachineJob(
-                                  item.id,
-                                  selectedMachine[item.id],
-                                  plannedDate[item.id] || todayStr
+                                  row.id,
+                                  selectedMachine[row.id],
+                                  plannedDate[row.id] || todayStr
                                 )
                               }
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center"
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-xs transition-colors shadow-sm"
                             >
-                              PLAN
+                              Plan Job
                             </button>
-                          </td>
-                        </tr>
-                      ))
-                    : (paginatedRows as PlannedJob[]).map((job, idx) => (
-                        <tr
-                          key={job.id}
-                          className={`transition-colors hover:bg-blue-50/50 ${
-                            idx % 2 === 1 ? "bg-slate-50/50" : "bg-white"
-                          }`}
-                        >
-                          <td className="py-3.5 px-5 font-bold text-slate-900">
-                            {job.order_items?.designs?.design_name || "-"}
-                          </td>
-
-                          <td className="py-3.5 px-5 font-medium text-slate-800">
-                            {job.order_items?.orders?.parties?.name || "-"}
-                          </td>
-
-                          <td className="py-3.5 px-5 font-mono text-xs text-slate-600">
-                            #{job.order_items?.orders?.order_no || "-"}
-                          </td>
-
-                          <td className="py-3.5 px-5 text-slate-700">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                              {job.order_items?.colours?.colour_name || "-"}
-                            </span>
-                          </td>
-
-                          <td className="py-3.5 px-5 font-semibold text-slate-900">
-                            {job.order_items?.quantity || "-"}{" "}
-                            <span className="text-xs text-slate-500 font-normal">
-                              {job.order_items?.unit || "Mtr"}
-                            </span>
-                          </td>
-
-                          <td className="py-3.5 px-5 font-medium text-slate-800">
-                            <div className="font-semibold text-slate-900">
-                              {job.machines?.machine_number || "-"}
-                            </div>
-                            <div className="text-xs text-slate-500">{job.planned_date}</div>
-                          </td>
-
-                          <td className="py-3.5 px-5">{renderStatusBadge(job.status)}</td>
-
-                          <td className="py-3.5 px-5 text-right">
-                            <div className="inline-flex items-center justify-end gap-2">
-                              {job.status === "Planned" && (
+                          ) : (
+                            <div className="flex items-center justify-end gap-2">
+                              {row.status === "Planned" && (
                                 <button
-                                  onClick={() => startProduction(job)}
-                                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1"
+                                  onClick={() => startProduction(row)}
+                                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-xs transition-colors shadow-sm inline-flex items-center gap-1"
                                 >
-                                  <Play className="w-3.5 h-3.5 fill-current" />
+                                  <Play className="w-3 h-3" />
                                   Start
                                 </button>
                               )}
-
-                              {job.status === "Running" && (
+                              {row.status === "Running" && (
                                 <button
-                                  onClick={() => completeProduction(job)}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1"
+                                  onClick={() => completeProduction(row)}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold text-xs transition-colors shadow-sm inline-flex items-center gap-1"
                                 >
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <CheckCircle2 className="w-3 h-3" />
                                   Complete
                                 </button>
                               )}
-
                               <button
-                                onClick={() => handlePrintProgram(job)}
-                                className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1"
+                                onClick={() => handlePrintProgram(row)}
+                                className="px-2.5 py-1 bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-50 font-medium text-xs transition-colors inline-flex items-center gap-1"
                               >
-                                <Printer className="w-3.5 h-3.5" />
-                                Print Program
+                                <Printer className="w-3 h-3" />
+                                Print
                               </button>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={8} className="py-8 text-center text-slate-400">
+                      No records found matching current criteria.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
           {/* Pagination Controls */}
-          <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
-            <div>
-              Showing <span className="font-semibold text-slate-900">{totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1}</span> to{" "}
-              <span className="font-semibold text-slate-900">{Math.min(currentPage * pageSize, totalRows)}</span> of{" "}
-              <span className="font-semibold text-slate-900">{totalRows}</span> orders
+          <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+            <div className="text-xs text-slate-500">
+              Showing <span className="font-semibold text-slate-700">{paginatedRows.length}</span> of{" "}
+              <span className="font-semibold text-slate-700">{totalRows}</span> items
             </div>
-
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
               <button
                 disabled={currentPage === 1}
-                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                className="p-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="p-1.5 border border-slate-300 bg-white rounded hover:bg-slate-100 disabled:opacity-40 transition-colors text-slate-600"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="font-medium text-slate-800">
+              <span className="text-xs font-semibold text-slate-700">
                 Page {currentPage} of {totalPages}
               </span>
               <button
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-                className="p-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="p-1.5 border border-slate-300 bg-white rounded hover:bg-slate-100 disabled:opacity-40 transition-colors text-slate-600"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -1175,194 +1148,164 @@ export default function ProductionPlanning() {
         </div>
       )}
 
-      {/* MODAL: ADD JOB BY DESIGN NUMBER */}
+      {/* DESIGN-CENTRIC ADD JOB MODAL */}
       {isAddJobOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Cpu className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-slate-800 text-base">Add Job to Machine Queue</h3>
+              <div className="flex items-center gap-2">
+                <Plus className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-slate-900 text-lg">Add Production Job (By Design)</h3>
               </div>
               <button
                 onClick={() => setIsAddJobOpen(false)}
-                className="text-slate-400 hover:text-slate-600 rounded-lg p-1"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-5">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  1. Target Machine
-                </label>
-                <select
-                  value={modalMachineId}
-                  onChange={(e) => setModalMachineId(e.target.value)}
-                  className="w-full text-sm border border-slate-300 rounded-lg p-2.5 bg-white font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
-                >
-                  {machines.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.machine_number} ({m.status || "Idle"})
-                    </option>
-                  ))}
-                </select>
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
+              {/* Machine & Date Selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Target Machine
+                  </label>
+                  <select
+                    value={modalMachineId}
+                    onChange={(e) => setModalMachineId(e.target.value)}
+                    className="w-full p-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-800"
+                  >
+                    {machines.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.machine_number} ({m.planned_jobs_count || 0} queued)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Planned Date
+                  </label>
+                  <input
+                    type="date"
+                    value={jobPlannedDate}
+                    onChange={(e) => setJobPlannedDate(e.target.value)}
+                    className="w-full p-2 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-800"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  2. Select Design Number
+              {/* Design Selection */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Select Design
                 </label>
-                <div className="relative mb-2">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search Design..."
+                    placeholder="Search available designs..."
                     value={designSearchTerm}
                     onChange={(e) => setDesignSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
 
-                <div className="max-h-36 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50">
-                  {filteredUnplannedDesigns.length === 0 ? (
-                    <div className="p-3 text-xs text-slate-400 text-center">
-                      No designs found with pending orders
-                    </div>
-                  ) : (
+                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50/50">
+                  {filteredUnplannedDesigns.length > 0 ? (
                     filteredUnplannedDesigns.map((d) => (
-                      <div
+                      <button
                         key={d.id}
+                        type="button"
                         onClick={() => {
                           setSelectedDesignId(String(d.id));
                           setSelectedOrderItemId(null);
                         }}
-                        className={`p-2.5 text-xs font-bold cursor-pointer transition-colors flex justify-between items-center ${
+                        className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between transition-colors ${
                           selectedDesignId === String(d.id)
-                            ? "bg-blue-600 text-white"
-                            : "hover:bg-blue-50 text-slate-800"
+                            ? "bg-blue-50 text-blue-700 font-bold"
+                            : "hover:bg-slate-100 text-slate-700"
                         }`}
                       >
                         <span>{d.design_name}</span>
                         {selectedDesignId === String(d.id) && (
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
                         )}
-                      </div>
+                      </button>
                     ))
+                  ) : (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      No matching unplanned designs found.
+                    </div>
                   )}
                 </div>
               </div>
 
+              {/* Orders linked to chosen Design */}
               {selectedDesignId && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    3. Pending Orders for this Design
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Select Order Item
                   </label>
-                  {pendingOrdersForSelectedDesign.length === 0 ? (
-                    <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg">
-                      No pending unplanned orders found for this design.
-                    </div>
-                  ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      {pendingOrdersForSelectedDesign.map((item) => {
-                        const isSelected = selectedOrderItemId === item.id;
-                        return (
-                          <div
-                            key={item.id}
-                            onClick={() => setSelectedOrderItemId(item.id)}
-                            className={`p-3 rounded-lg border text-xs cursor-pointer transition-all ${
-                              isSelected
-                                ? "border-blue-600 bg-blue-50/80 shadow-xs"
-                                : "border-slate-200 bg-white hover:border-slate-300"
-                            }`}
-                          >
-                            <div className="flex justify-between items-start font-bold text-slate-900">
-                              <span>{item.orders?.parties?.name || "Unknown Party"}</span>
-                              <span className="text-blue-700 font-bold">
-                                Pending Qty: {item.quantity} {item.unit || "Mtr"}
-                              </span>
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
+                    {pendingOrdersForSelectedDesign.length > 0 ? (
+                      pendingOrdersForSelectedDesign.map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={() => setSelectedOrderItemId(item.id)}
+                          className={`p-3 text-xs cursor-pointer transition-colors flex items-center justify-between ${
+                            selectedOrderItemId === item.id
+                              ? "bg-blue-50/80 border-l-4 border-blue-600"
+                              : "hover:bg-slate-50"
+                          }`}
+                        >
+                          <div>
+                            <div className="font-bold text-slate-900">
+                              Order #{item.orders?.order_no || "-"} - {item.orders?.parties?.name || "-"}
                             </div>
-                            <div className="text-slate-500 mt-1 flex justify-between">
-                              <span>Colour: {item.colours?.colour_name || "N/A"}</span>
-                              <span>Order #{item.orders?.order_no || "-"}</span>
+                            <div className="text-slate-500 mt-0.5">
+                              Colour: <span className="font-semibold text-slate-700">{item.colours?.colour_name || "-"}</span> | Target Date: {item.orders?.delivery_date || "-"}
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedOrderItemDetails && (
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
-                  <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Auto-Filled Details
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-slate-500">Party:</span>{" "}
-                      <span className="font-bold text-slate-800">
-                        {selectedOrderItemDetails.orders?.parties?.name}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Design:</span>{" "}
-                      <span className="font-bold text-slate-800">
-                        {selectedOrderItemDetails.designs?.design_name}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Colour:</span>{" "}
-                      <span className="font-bold text-slate-800">
-                        {selectedOrderItemDetails.colours?.colour_name}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Quantity:</span>{" "}
-                      <span className="font-bold text-slate-800">
-                        {selectedOrderItemDetails.quantity} {selectedOrderItemDetails.unit || "Mtr"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="pt-2">
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      Planned Date
-                    </label>
-                    <input
-                      type="date"
-                      value={jobPlannedDate}
-                      onChange={(e) => setJobPlannedDate(e.target.value)}
-                      className="w-full text-xs border border-slate-300 rounded p-1.5 bg-white"
-                    />
+                          <div className="text-right">
+                            <div className="font-bold text-slate-900">
+                              {item.quantity} {item.unit || "Mtr"}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center text-xs text-slate-400">
+                        No pending orders for this design.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end space-x-3">
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
               <button
+                type="button"
                 onClick={() => setIsAddJobOpen(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"
+                className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
-                disabled={!selectedOrderItemId}
+                type="button"
+                disabled={!selectedOrderItemId || !modalMachineId}
                 onClick={() => {
                   if (selectedOrderItemId) {
-                    assignMachineJob(
-                      selectedOrderItemId,
-                      modalMachineId,
-                      jobPlannedDate
-                    );
+                    assignMachineJob(selectedOrderItemId, modalMachineId, jobPlannedDate);
                   }
                 }}
-                className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition-colors shadow-sm"
               >
-                Confirm & Add to Queue
+                Assign & Queue Job
               </button>
             </div>
           </div>
