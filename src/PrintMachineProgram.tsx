@@ -44,28 +44,32 @@ export default function PrintMachineProgram(props: PrintMachineProgramProps) {
   }, [party_id, state]);
 
   async function loadSavedLayout(partyId: number, baseItems: ProgramItem[]) {
-    const { data, error } = await supabase
+    const { data: layoutData, error: layoutError } = await supabase
       .from("party_program_layout")
       .select("colour_id, order1, order2, order3")
       .eq("party_id", partyId);
 
-    if (error) {
-      console.error("Error loading saved layout:", error);
+    if (layoutError) {
+      console.error("Error loading saved layout:", layoutError);
       return;
     }
 
-    if (data && data.length > 0) {
-      const layoutMap = new Map<number, { order1?: string; order2?: string; order3?: string }>();
-      data.forEach((row) => {
-        layoutMap.set(row.colour_id, {
-          order1: row.order1 || "",
-          order2: row.order2 || "",
-          order3: row.order3 || "",
-        });
+    const layoutMap = new Map<number, { order1?: string; order2?: string; order3?: string }>();
+    if (layoutData && layoutData.length > 0) {
+      layoutData.forEach((row) => {
+        if (row.colour_id != null) {
+          layoutMap.set(Number(row.colour_id), {
+            order1: row.order1 || "",
+            order2: row.order2 || "",
+            order3: row.order3 || "",
+          });
+        }
       });
+    }
 
-      setProgramItems((prevItems) =>
-        prevItems.map((item) => {
+    if (baseItems && baseItems.length > 0) {
+      setProgramItems(
+        baseItems.map((item) => {
           if (item.colour_id && layoutMap.has(item.colour_id)) {
             const saved = layoutMap.get(item.colour_id)!;
             return {
@@ -83,6 +87,30 @@ export default function PrintMachineProgram(props: PrintMachineProgramProps) {
           };
         })
       );
+    } else if (layoutData && layoutData.length > 0) {
+      // If no baseItems passed in state, fetch colour names dynamically for saved layouts
+      const colourIds = Array.from(layoutMap.keys());
+      const { data: coloursData, error: coloursError } = await supabase
+        .from("colours")
+        .select("id, colour_name, name")
+        .in("id", colourIds);
+
+      if (!coloursError && coloursData) {
+        const colourNameMap = new Map<number, string>();
+        coloursData.forEach((c: any) => {
+          colourNameMap.set(Number(c.id), c.colour_name || c.name || "Unnamed Colour");
+        });
+
+        const constructedItems: ProgramItem[] = Array.from(layoutMap.entries()).map(([cId, orders]) => ({
+          colour_id: cId,
+          colour: colourNameMap.get(cId) || `Colour #${cId}`,
+          order1: orders.order1 || "",
+          order2: orders.order2 || "",
+          order3: orders.order3 || "",
+        }));
+
+        setProgramItems(constructedItems);
+      }
     }
   }
 
