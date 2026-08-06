@@ -62,13 +62,15 @@ export default function Orders() {
   }, []);
 
   async function loadMasters() {
-    const { data: p } = await supabase.from("parties").select("id, name");
-    const { data: d } = await supabase.from("designs").select("id, design_name");
-    const { data: c } = await supabase.from("colours").select("id, colour_name");
+    const [pRes, dRes, cRes] = await Promise.all([
+      supabase.from("parties").select("id, name"),
+      supabase.from("designs").select("id, design_name"),
+      supabase.from("colours").select("id, colour_name"),
+    ]);
 
-    if (p) setParties(p);
-    if (d) setDesigns(d);
-    if (c) setColours(c);
+    if (pRes.data) setParties(pRes.data);
+    if (dRes.data) setDesigns(dRes.data);
+    if (cRes.data) setColours(cRes.data);
   }
 
   async function handlePartyChange(selectedPartyId: string) {
@@ -112,60 +114,77 @@ export default function Orders() {
         remarks: "",
         is_mix_colour: defaultIds.length > 0,
         mix_type: defaultIds.length > 0 ? "Use Party Colour Chart" : "Custom Colours",
-        selected_colour_ids: defaultIds.length > 0 ? defaultIds : [],
+        selected_colour_ids: defaultIds.length > 0 ? [...defaultIds] : [],
         show_extra_colours: false,
         update_party_chart: false,
       },
     ]);
   }
 
+  function removeRow(index: number) {
+    if (items.length === 1) {
+      alert("Order must contain at least one item.");
+      return;
+    }
+    setItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function updateRow<K extends keyof Item>(index: number, field: K, value: Item[K]) {
-    const copy = [...items];
-    copy[index] = {
-      ...copy[index],
-      [field]: value,
-    };
+    setItems((prevItems) =>
+      prevItems.map((item, i) => {
+        if (i !== index) return item;
 
-    if (field === "mix_type") {
-      if (value === "Use Party Colour Chart") {
-        copy[index].selected_colour_ids = Array.from(new Set(partyDefaultColourIds));
-        copy[index].show_extra_colours = false;
-      }
-    }
+        const updatedItem = { ...item, [field]: value };
 
-    if (field === "is_mix_colour" && value === true) {
-      if (partyDefaultColourIds.length > 0) {
-        copy[index].mix_type = "Use Party Colour Chart";
-        copy[index].selected_colour_ids = Array.from(new Set(partyDefaultColourIds));
-      } else {
-        copy[index].mix_type = "Custom Colours";
-      }
-    }
+        if (field === "mix_type") {
+          if (value === "Use Party Colour Chart") {
+            updatedItem.selected_colour_ids = Array.from(new Set(partyDefaultColourIds));
+            updatedItem.show_extra_colours = false;
+          }
+        }
 
-    setItems(copy);
+        if (field === "is_mix_colour" && value === true) {
+          if (partyDefaultColourIds.length > 0) {
+            updatedItem.mix_type = "Use Party Colour Chart";
+            updatedItem.selected_colour_ids = Array.from(new Set(partyDefaultColourIds));
+          } else {
+            updatedItem.mix_type = "Custom Colours";
+          }
+        }
+
+        return updatedItem;
+      })
+    );
   }
 
   function toggleColourSelection(rowIndex: number, colourId: number) {
-    const copy = [...items];
-    const currentSelected = copy[rowIndex].selected_colour_ids;
-    if (currentSelected.includes(colourId)) {
-      copy[rowIndex].selected_colour_ids = currentSelected.filter((id) => id !== colourId);
-    } else {
-      copy[rowIndex].selected_colour_ids = Array.from(new Set([...currentSelected, colourId]));
-    }
-    setItems(copy);
+    setItems((prevItems) =>
+      prevItems.map((item, i) => {
+        if (i !== rowIndex) return item;
+        const currentSelected = item.selected_colour_ids;
+        const exists = currentSelected.includes(colourId);
+
+        const newSelected = exists
+          ? currentSelected.filter((id) => id !== colourId)
+          : Array.from(new Set([...currentSelected, colourId]));
+
+        return { ...item, selected_colour_ids: newSelected };
+      })
+    );
   }
 
   function selectAllColours(rowIndex: number) {
-    const copy = [...items];
-    copy[rowIndex].selected_colour_ids = colours.map((c) => c.id);
-    setItems(copy);
+    setItems((prevItems) =>
+      prevItems.map((item, i) =>
+        i === rowIndex ? { ...item, selected_colour_ids: colours.map((c) => c.id) } : item
+      )
+    );
   }
 
   function clearAllColours(rowIndex: number) {
-    const copy = [...items];
-    copy[rowIndex].selected_colour_ids = [];
-    setItems(copy);
+    setItems((prevItems) =>
+      prevItems.map((item, i) => (i === rowIndex ? { ...item, selected_colour_ids: [] } : item))
+    );
   }
 
   async function saveOrder() {
@@ -204,16 +223,17 @@ export default function Orders() {
       .single();
 
     if (error || !order) {
-      alert(error?.message);
+      alert(error?.message || "Error creating order.");
       return;
     }
 
-    let allUpdatedPartyColours = new Set<number>(partyDefaultColourIds);
+    const orderItemsToInsert = [];
+    const allUpdatedPartyColours = new Set<number>(partyDefaultColourIds);
     let partyChartUpdateNeeded = false;
 
     for (const item of items) {
       if (!item.is_mix_colour) {
-        await supabase.from("order_items").insert({
+        orderItemsToInsert.push({
           order_id: order.id,
           design_id: Number(item.design_id),
           colour_id: Number(item.colour_id),
@@ -224,18 +244,24 @@ export default function Orders() {
         });
       } else {
         const uniqueSelectedIds = Array.from(new Set(item.selected_colour_ids));
+        const selectedNames = colours
+          .filter((c) => uniqueSelectedIds.includes(c.id))
+          .map((c) => c.colour_name);
 
-        for (const cId of uniqueSelectedIds) {
-          await supabase.from("order_items").insert({
-            order_id: order.id,
-            design_id: Number(item.design_id),
-            colour_id: Number(cId),
-            quantity: Number(item.quantity),
-            unit: item.unit,
-            machine_id: null,
-            remarks: item.remarks,
-          });
+        const lines = ["[Mix Colour]", `Type: ${item.mix_type}`, "Colours:", ...selectedNames];
+        if (item.remarks.trim()) {
+          lines.push(`Remarks: ${item.remarks.trim()}`);
         }
+
+        orderItemsToInsert.push({
+          order_id: order.id,
+          design_id: Number(item.design_id),
+          colour_id: null,
+          quantity: Number(item.quantity),
+          unit: item.unit,
+          machine_id: null,
+          remarks: lines.join("\n"),
+        });
 
         if (item.update_party_chart) {
           partyChartUpdateNeeded = true;
@@ -244,12 +270,16 @@ export default function Orders() {
       }
     }
 
+    const { error: itemsError } = await supabase.from("order_items").insert(orderItemsToInsert);
+
+    if (itemsError) {
+      alert(`Error saving items: ${itemsError.message}`);
+      return;
+    }
+
     if (partyChartUpdateNeeded) {
       const finalPartyColourArray = Array.from(allUpdatedPartyColours);
-      await supabase
-        .from("party_default_colours")
-        .delete()
-        .eq("party_id", Number(partyId));
+      await supabase.from("party_default_colours").delete().eq("party_id", Number(partyId));
 
       if (finalPartyColourArray.length > 0) {
         const rowsToInsert = finalPartyColourArray.map((cId) => ({
@@ -265,12 +295,8 @@ export default function Orders() {
   }
 
   const renderMixColourContent = (row: Item, index: number) => {
-    const chartColourObjects = colours.filter((c) =>
-      partyDefaultColourIds.includes(c.id)
-    );
-    const remainingColourObjects = colours.filter(
-      (c) => !partyDefaultColourIds.includes(c.id)
-    );
+    const chartColourObjects = colours.filter((c) => partyDefaultColourIds.includes(c.id));
+    const remainingColourObjects = colours.filter((c) => !partyDefaultColourIds.includes(c.id));
 
     return (
       <div className="space-y-3 w-full">
@@ -281,9 +307,7 @@ export default function Orders() {
               name={`mix_type_${index}`}
               value="Use Party Colour Chart"
               checked={row.mix_type === "Use Party Colour Chart"}
-              onChange={() =>
-                updateRow(index, "mix_type", "Use Party Colour Chart")
-              }
+              onChange={() => updateRow(index, "mix_type", "Use Party Colour Chart")}
             />
             Use Party Colour Chart
           </label>
@@ -294,9 +318,7 @@ export default function Orders() {
               name={`mix_type_${index}`}
               value="Custom Colours"
               checked={row.mix_type === "Custom Colours"}
-              onChange={() =>
-                updateRow(index, "mix_type", "Custom Colours")
-              }
+              onChange={() => updateRow(index, "mix_type", "Custom Colours")}
             />
             Custom Colours
           </label>
@@ -310,9 +332,7 @@ export default function Orders() {
 
             <div className="space-y-1 max-h-36 overflow-y-auto">
               {chartColourObjects.length === 0 ? (
-                <div className="text-xs text-slate-400 italic">
-                  No party favourite colours set.
-                </div>
+                <div className="text-xs text-slate-400 italic">No party favourite colours set.</div>
               ) : (
                 chartColourObjects.map((c) => (
                   <label
@@ -367,9 +387,7 @@ export default function Orders() {
                   type="checkbox"
                   className="rounded text-blue-600"
                   checked={row.update_party_chart}
-                  onChange={(e) =>
-                    updateRow(index, "update_party_chart", e.target.checked)
-                  }
+                  onChange={(e) => updateRow(index, "update_party_chart", e.target.checked)}
                 />
                 Update Party Colour Chart
               </label>
@@ -421,13 +439,11 @@ export default function Orders() {
     <div className="p-4 sm:p-8 max-w-full overflow-x-hidden">
       {/* 1. Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
-          Order Entry
-        </h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Order Entry</h1>
 
         <button
           onClick={saveOrder}
-          className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition"
+          className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition cursor-pointer"
         >
           Save Order
         </button>
@@ -436,12 +452,11 @@ export default function Orders() {
       {/* 2. Top section */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <select
-          className="border rounded-lg p-3 w-full"
+          className="border rounded-lg p-3 w-full bg-white"
           value={partyId}
           onChange={(e) => handlePartyChange(e.target.value)}
         >
           <option value="">Select Party</option>
-
           {parties.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -451,13 +466,13 @@ export default function Orders() {
 
         <input
           type="date"
-          className="border rounded-lg p-3 w-full"
+          className="border rounded-lg p-3 w-full bg-white"
           value={deliveryDate}
           onChange={(e) => setDeliveryDate(e.target.value)}
         />
 
         <input
-          className="border rounded-lg p-3 w-full"
+          className="border rounded-lg p-3 w-full bg-white"
           placeholder="Remarks"
           value={remarks}
           onChange={(e) => setRemarks(e.target.value)}
@@ -469,23 +484,31 @@ export default function Orders() {
         {items.map((row, index) => (
           <div
             key={index}
-            className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-4"
+            className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-4 relative"
           >
             <div className="flex justify-between items-center border-b pb-2">
-              <span className="font-semibold text-sm text-slate-700">
-                Item #{index + 1}
-              </span>
-              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 rounded text-blue-600"
-                  checked={row.is_mix_colour}
-                  onChange={(e) =>
-                    updateRow(index, "is_mix_colour", e.target.checked)
-                  }
-                />
-                <span>Mix Colour</span>
-              </label>
+              <span className="font-semibold text-sm text-slate-700">Item #{index + 1}</span>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 rounded text-blue-600"
+                    checked={row.is_mix_colour}
+                    onChange={(e) => updateRow(index, "is_mix_colour", e.target.checked)}
+                  />
+                  <span>Mix Colour</span>
+                </label>
+
+                {items.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeRow(index)}
+                    className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 rounded border border-red-200"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Design */}
@@ -589,6 +612,7 @@ export default function Orders() {
               <th className="p-3 text-left">Unit</th>
               <th className="p-3 text-center">Production</th>
               <th className="p-3 text-left">Remarks</th>
+              <th className="p-3 text-center">Action</th>
             </tr>
           </thead>
 
@@ -602,7 +626,6 @@ export default function Orders() {
                     onChange={(e) => updateRow(index, "design_id", e.target.value)}
                   >
                     <option value="">Select</option>
-
                     {designs.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.design_name}
@@ -616,9 +639,7 @@ export default function Orders() {
                     type="checkbox"
                     className="w-5 h-5 cursor-pointer mt-2"
                     checked={row.is_mix_colour}
-                    onChange={(e) =>
-                      updateRow(index, "is_mix_colour", e.target.checked)
-                    }
+                    onChange={(e) => updateRow(index, "is_mix_colour", e.target.checked)}
                   />
                 </td>
 
@@ -627,12 +648,9 @@ export default function Orders() {
                     <select
                       className="border w-full p-2 rounded"
                       value={row.colour_id}
-                      onChange={(e) =>
-                        updateRow(index, "colour_id", e.target.value)
-                      }
+                      onChange={(e) => updateRow(index, "colour_id", e.target.value)}
                     >
                       <option value="">Select</option>
-
                       {colours.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.colour_name}
@@ -665,9 +683,7 @@ export default function Orders() {
                   </select>
                 </td>
 
-                <td className="p-2 text-center text-slate-500 min-w-[120px]">
-                  Assign Later
-                </td>
+                <td className="p-2 text-center text-slate-500 min-w-[120px]">Assign Later</td>
 
                 <td className="p-2 min-w-[150px]">
                   <input
@@ -676,18 +692,29 @@ export default function Orders() {
                     onChange={(e) => updateRow(index, "remarks", e.target.value)}
                   />
                 </td>
+
+                <td className="p-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => removeRow(index)}
+                    className="text-red-500 hover:text-red-700 font-bold p-1 rounded hover:bg-red-50 cursor-pointer"
+                    title="Delete Row"
+                  >
+                    ✕
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* 5. Add Colour button */}
+      {/* 5. Add Row Button */}
       <button
         onClick={addRow}
-        className="mt-6 w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition"
+        className="mt-6 w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition cursor-pointer"
       >
-        + Add Colour
+        + Add Item
       </button>
     </div>
   );
