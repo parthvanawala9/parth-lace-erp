@@ -12,7 +12,8 @@ import {
   Layers,
   ListChecks,
   RotateCcw,
-  Star
+  Star,
+  X
 } from "lucide-react";
 
 type Party = {
@@ -64,6 +65,16 @@ export default function Orders() {
   const [totalQty, setTotalQty] = useState<string>("5");
   const [unit, setUnit] = useState<"Pcs" | "Carton">("Carton");
   const [autoColourSource, setAutoColourSource] = useState<string>("");
+
+  // Quick Add Party Modal State
+  const [isAddPartyOpen, setIsAddPartyOpen] = useState<boolean>(false);
+  const [newPartyName, setNewPartyName] = useState<string>("");
+  const [creatingParty, setCreatingParty] = useState<boolean>(false);
+
+  // Quick Add Design Modal State
+  const [isAddDesignOpen, setIsAddDesignOpen] = useState<boolean>(false);
+  const [newDesignName, setNewDesignName] = useState<string>("");
+  const [creatingDesign, setCreatingDesign] = useState<boolean>(false);
 
   useEffect(() => {
     loadMasterData();
@@ -127,6 +138,62 @@ export default function Orders() {
       }
     } catch (err) {
       console.error("Error fetching order number:", err);
+    }
+  }
+
+  // Quick Create New Party
+  async function handleCreateParty(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newPartyName.trim()) return;
+
+    setCreatingParty(true);
+    try {
+      const { data, error } = await supabase
+        .from("parties")
+        .insert({ name: newPartyName.trim(), party_name: newPartyName.trim() })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setParties((prev) => [...prev, data].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+        setPartyId(data.id);
+        setIsAddPartyOpen(false);
+        setNewPartyName("");
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to create party");
+    } finally {
+      setCreatingParty(false);
+    }
+  }
+
+  // Quick Create New Design
+  async function handleCreateDesign(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newDesignName.trim()) return;
+
+    setCreatingDesign(true);
+    try {
+      const { data, error } = await supabase
+        .from("designs")
+        .insert({ design_name: newDesignName.trim() })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setDesigns((prev) => [...prev, data].sort((a, b) => a.design_name.localeCompare(b.design_name)));
+        setSelectedDesignId(data.id);
+        setIsAddDesignOpen(false);
+        setNewDesignName("");
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to create design");
+    } finally {
+      setCreatingDesign(false);
     }
   }
 
@@ -215,7 +282,7 @@ export default function Orders() {
     }
   };
 
-  // ADD 1 COMBINED MIX ITEM (Converts Cartons to total pieces and divides across selected colours with explicit colour remarks)
+  // ADD 1 COMBINED MIX ITEM
   const handleAddAsCombinedMixItem = () => {
     if (!selectedDesignId) {
       alert("Please select a Design first.");
@@ -233,10 +300,7 @@ export default function Orders() {
     const qtyNum = Number(totalQty) || 1;
     const colorCount = selectedColourIds.length;
 
-    // Calculate total pieces (1 Carton = 420 pieces)
     const totalPieces = unit === "Carton" ? qtyNum * PIECES_PER_CARTON : qtyNum;
-    
-    // Divide total pieces evenly among the selected colours
     const qtyPerColour = Number((totalPieces / colorCount).toFixed(2));
 
     const newItems: OrderItemForm[] = selectedColourIds.map((cId) => {
@@ -401,9 +465,18 @@ export default function Orders() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Party Name
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Party Name
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsAddPartyOpen(true)}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add New Party
+              </button>
+            </div>
             <select
               value={partyId}
               onChange={(e) =>
@@ -440,9 +513,18 @@ export default function Orders() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              1. Choose Design
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                1. Choose Design
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsAddDesignOpen(true)}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add New Design
+              </button>
+            </div>
             <select
               value={selectedDesignId}
               onChange={(e) =>
@@ -667,6 +749,96 @@ export default function Orders() {
           </button>
         </div>
       </form>
+
+      {/* QUICK ADD PARTY MODAL */}
+      {isAddPartyOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider">Add New Party</h3>
+              <button onClick={() => setIsAddPartyOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateParty} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Party Name</label>
+                <input
+                  type="text"
+                  placeholder="Enter Party Name..."
+                  value={newPartyName}
+                  onChange={(e) => setNewPartyName(e.target.value)}
+                  className="w-full p-2.5 text-sm border border-slate-300 rounded-lg font-medium focus:ring-2 focus:ring-blue-500"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddPartyOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingParty || !newPartyName.trim()}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {creatingParty && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Save Party
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK ADD DESIGN MODAL */}
+      {isAddDesignOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider">Add New Design</h3>
+              <button onClick={() => setIsAddDesignOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateDesign} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Design Name</label>
+                <input
+                  type="text"
+                  placeholder="Enter Design Name..."
+                  value={newDesignName}
+                  onChange={(e) => setNewDesignName(e.target.value)}
+                  className="w-full p-2.5 text-sm border border-slate-300 rounded-lg font-medium focus:ring-2 focus:ring-blue-500"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddDesignOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingDesign || !newDesignName.trim()}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {creatingDesign && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Save Design
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
