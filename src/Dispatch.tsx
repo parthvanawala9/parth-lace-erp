@@ -81,7 +81,9 @@ export default function Dispatch() {
   const [partyFilter, setPartyFilter] = useState<string>("ALL");
   const [designFilter, setDesignFilter] = useState<string>("ALL");
   const [dateFilter, setDateFilter] = useState<string>("");
-
+  const [showPartialModal, setShowPartialModal] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [partialQty, setPartialQty] = useState("");
   useEffect(() => {
     loadData();
   }, []);
@@ -421,7 +423,57 @@ export default function Dispatch() {
     await loadData();
     setSubmittingGroupKey(null);
   }
+async function handlePartialDispatch() {
+  if (!selectedGroup) return;
 
+  const qty = Number(partialQty);
+
+  if (!qty || qty <= 0) {
+    alert("Please enter a valid dispatch quantity.");
+    return;
+  }
+
+  const todayStr = new Date().toISOString().split("T")[0];
+
+  for (const job of selectedGroup.jobs) {
+    const orderItemId = job.order_item_id;
+    const orderQty = job.order_items?.quantity || 0;
+    const dispatchedSoFar =
+      dispatchedQtyByOrderItem.get(orderItemId) || 0;
+
+    const pendingQty = Math.max(0, orderQty - dispatchedSoFar);
+
+    if (pendingQty <= 0) continue;
+
+    if (qty > pendingQty) {
+      alert(
+        `Dispatch quantity cannot exceed pending quantity (${pendingQty}).`
+      );
+      return;
+    }
+
+    const { error } = await supabase.from("dispatches").insert({
+      order_item_id: orderItemId,
+      dispatch_date: todayStr,
+      dispatch_qty: qty,
+      remarks: "Partial Dispatch",
+      status: "Partially Dispatched",
+    });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    break;
+  }
+
+  setShowPartialModal(false);
+  setPartialQty("");
+  setSelectedGroup(null);
+
+  await loadData();
+}
   // Handle Printing Group Dispatch Challan
   function handlePrintChallanGroup(group: {
     partyName: string;
@@ -708,19 +760,32 @@ export default function Dispatch() {
                         </td>
 
                         <td className="py-3.5 px-4 text-center">
-                          <button
-                            disabled={submittingGroupKey === group.groupKey}
-                            onClick={() => handleDispatchGroup(group)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 mx-auto"
-                          >
-                            {submittingGroupKey === group.groupKey ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5" />
-                            )}
-                            Done
-                          </button>
-                        </td>
+  <div className="flex justify-center gap-2">
+    <button
+      onClick={() => {
+        setSelectedGroup(group);
+        setPartialQty("");
+        setShowPartialModal(true);
+      }}
+      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs"
+    >
+      Partial
+    </button>
+
+    <button
+      disabled={submittingGroupKey === group.groupKey}
+      onClick={() => handleDispatchGroup(group)}
+      className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50"
+    >
+      {submittingGroupKey === group.groupKey ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : (
+        <Check className="w-3.5 h-3.5" />
+      )}
+      Done
+    </button>
+  </div>
+</td>
                       </tr>
                     ))}
                   </tbody>
@@ -793,7 +858,57 @@ export default function Dispatch() {
           )}
         </div>
       )}
+{showPartialModal && selectedGroup && (
+  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+      <h2 className="text-lg font-bold mb-4">
+        Partial Dispatch
+      </h2>
 
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm text-slate-500">Party</p>
+          <p className="font-semibold">{selectedGroup.partyName}</p>
+        </div>
+
+        <div>
+          <p className="text-sm text-slate-500">Order No</p>
+          <p className="font-semibold">{selectedGroup.orderNo}</p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">
+            Dispatch Quantity
+          </label>
+
+          <input
+            type="number"
+            value={partialQty}
+            onChange={(e) => setPartialQty(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2"
+            placeholder="Enter quantity"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-3">
+          <button
+            onClick={() => setShowPartialModal(false)}
+            className="px-4 py-2 rounded-lg border"
+          >
+            Cancel
+          </button>
+
+          <button
+  onClick={handlePartialDispatch}
+  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+>
+  Save
+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
       {/* TAB 2: DISPATCH HISTORY */}
       {activeTab === "history" && (
         <div className="bg-white rounded-b-xl border border-slate-200 shadow-sm overflow-hidden">
