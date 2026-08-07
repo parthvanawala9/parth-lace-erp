@@ -268,7 +268,6 @@ export default function Dispatch() {
       }
     });
 
-    // Only return groups that still have pending quantity to dispatch (fully dispatched ones move to history)
     return Object.values(groups).filter((group) => group.totalPending > 0);
   }, [filteredPendingItems, dispatchedQtyByOrderItem]);
 
@@ -281,11 +280,13 @@ export default function Dispatch() {
       const designName = item?.designs?.design_name || "";
       const designId = String(item?.designs?.id || "");
       const colourName = item?.colours?.colour_name || "";
+      const orderNo = String(item?.orders?.order_no || "");
 
       const matchesSearch =
         partyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         designName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        colourName.toLowerCase().includes(searchTerm.toLowerCase());
+        colourName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        orderNo.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesParty = partyFilter === "ALL" || partyId === partyFilter;
       const matchesDesign = designFilter === "ALL" || designId === designFilter;
@@ -294,6 +295,74 @@ export default function Dispatch() {
       return matchesSearch && matchesParty && matchesDesign && matchesDate;
     });
   }, [dispatchLogs, searchTerm, partyFilter, designFilter, dateFilter]);
+
+  // Group History Items by Party Name, Order Number, and Dispatch Date into Single Rows
+  const groupedHistoryItems = useMemo(() => {
+    const groups: Record<
+      string,
+      {
+        groupKey: string;
+        partyName: string;
+        orderNo: string;
+        logs: DispatchRecord[];
+        colours: string[];
+        designs: string[];
+        totalDispatched: number;
+        dispatchDate: string;
+        remarks: string[];
+        status: string;
+        unit: string;
+      }
+    > = {};
+
+    filteredHistoryItems.forEach((log) => {
+      const item = log.order_items;
+      const partyName = item?.orders?.parties?.name || "Unknown Party";
+      const orderNo = String(item?.orders?.order_no || "N/A");
+      const dispatchDate = log.dispatch_date || "";
+      const groupKey = `${partyName}_${orderNo}_${dispatchDate}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          groupKey,
+          partyName,
+          orderNo,
+          logs: [],
+          colours: [],
+          designs: [],
+          totalDispatched: 0,
+          dispatchDate,
+          remarks: [],
+          status: log.status || "Fully Dispatched",
+          unit: item?.unit || "Mtr",
+        };
+      }
+      groups[groupKey].logs.push(log);
+
+      const qty =
+        Number(
+          log.dispatch_qty ??
+          log.dispatched_qty ??
+          log.qty ??
+          log.quantity
+        ) || 0;
+      groups[groupKey].totalDispatched += qty;
+
+      const colName = item?.colours?.colour_name;
+      if (colName && !groups[groupKey].colours.includes(colName)) {
+        groups[groupKey].colours.push(colName);
+      }
+      const desName = item?.designs?.design_name;
+      if (desName && !groups[groupKey].designs.includes(desName)) {
+        groups[groupKey].designs.push(desName);
+      }
+      if (log.remarks && !groups[groupKey].remarks.includes(log.remarks)) {
+        groups[groupKey].remarks.push(log.remarks);
+      }
+    });
+
+    return Object.values(groups);
+  }, [filteredHistoryItems]);
 
   // Handle Dispatch Submission for an Entire Order Group (Single "Done" Button)
   async function handleDispatchGroup(group: {
@@ -353,27 +422,27 @@ export default function Dispatch() {
     setSubmittingGroupKey(null);
   }
 
-  // Handle Printing Dispatch Challan
-  function handlePrintChallan(record: {
-    party_name: string;
-    design_name: string;
-    colour_name: string;
-    order_no: string | number;
-    dispatch_qty: number;
+  // Handle Printing Group Dispatch Challan
+  function handlePrintChallanGroup(group: {
+    partyName: string;
+    designs: string[];
+    colours: string[];
+    orderNo: string | number;
+    totalDispatched: number;
     unit: string;
-    remarks: string;
-    dispatch_date: string;
+    remarks: string[];
+    dispatchDate: string;
   }) {
     navigate("/dispatch-slip", {
       state: {
-        party: record.party_name,
-        design: record.design_name,
-        colour: record.colour_name,
-        orderNo: record.order_no,
-        dispatchQty: record.dispatch_qty,
-        unit: record.unit,
-        remarks: record.remarks,
-        dispatchDate: record.dispatch_date,
+        party: group.partyName,
+        design: group.designs.join(", "),
+        colour: group.colours.join(", "),
+        orderNo: group.orderNo,
+        dispatchQty: group.totalDispatched,
+        unit: group.unit,
+        remarks: group.remarks.join(", "),
+        dispatchDate: group.dispatchDate,
       },
     });
   }
@@ -382,7 +451,7 @@ export default function Dispatch() {
   const renderStatusBadge = (status: string) => {
     if (status === "Fully Dispatched") {
       return (
-        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
           <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
           Fully Dispatched
         </span>
@@ -390,14 +459,14 @@ export default function Dispatch() {
     }
     if (status === "Partially Dispatched" || status === "Partial Dispatch") {
       return (
-        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
           <Clock className="w-3 h-3 mr-1 text-amber-600" />
           Partially Dispatched
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800 border border-blue-200">
         <AlertCircle className="w-3 h-3 mr-1 text-blue-600" />
         Pending Dispatch
       </span>
@@ -414,18 +483,18 @@ export default function Dispatch() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Header Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-blue-50 rounded-xl border border-blue-100">
             <Truck className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               Textile Dispatch Management
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
               Production Completed Order Dispatching & Challan Generation
             </p>
           </div>
@@ -444,8 +513,8 @@ export default function Dispatch() {
 
       {/* Filter Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
-        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
-          <div className="relative min-w-[180px]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="relative">
             <Filter className="w-3.5 h-3.5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
             <select
               value={partyFilter}
@@ -461,7 +530,7 @@ export default function Dispatch() {
             </select>
           </div>
 
-          <div className="relative min-w-[180px]">
+          <div className="relative">
             <Filter className="w-3.5 h-3.5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
             <select
               value={designFilter}
@@ -477,24 +546,24 @@ export default function Dispatch() {
             </select>
           </div>
 
-          <div className="relative min-w-[160px]">
+          <div className="relative">
             <Calendar className="w-3.5 h-3.5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="date"
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
-              className="w-full pl-8 pr-2 py-1.5 text-xs font-medium bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700"
+              className="w-full pl-8 pr-2 py-2 text-xs font-medium bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700"
             />
           </div>
 
-          <div className="relative flex-1 min-w-[240px]">
+          <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               placeholder="Search Party, Design, Colour..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800"
+              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800"
             />
           </div>
         </div>
@@ -557,12 +626,12 @@ export default function Dispatch() {
                 : "bg-slate-100 text-slate-600"
             }`}
           >
-            {filteredHistoryItems.length}
+            {groupedHistoryItems.length}
           </span>
         </button>
       </div>
 
-      {/* TAB 1: PENDING DISPATCH TABLE (ONE SINGLE ROW PER ORDER WITH COLORS COMBINED) */}
+      {/* TAB 1: PENDING DISPATCH */}
       {activeTab === "pending" && (
         <div className="bg-white rounded-b-xl border border-slate-200 shadow-sm overflow-hidden">
           {groupedPendingItems.length === 0 ? (
@@ -576,41 +645,120 @@ export default function Dispatch() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-100 text-slate-600 uppercase font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-4">Party Name / Order No</th>
-                    <th className="py-3 px-3">Designs</th>
-                    <th className="py-3 px-3">Colours (Combined)</th>
-                    <th className="py-3 px-3 text-right">Order Qty</th>
-                    <th className="py-3 px-3 text-right">Produced Qty</th>
-                    <th className="py-3 px-3 text-right">Pending Qty</th>
-                    <th className="py-3 px-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {groupedPendingItems.map((group, idx) => (
-                    <tr
-                      key={group.groupKey}
-                      className={`transition-colors hover:bg-blue-50/40 ${
-                        idx % 2 === 1 ? "bg-slate-50/50" : "bg-white"
-                      }`}
-                    >
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900 text-sm">
+            <>
+              {/* DESKTOP TABLE VIEW */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-100 text-slate-600 uppercase font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Party Name / Order No</th>
+                      <th className="py-3 px-3">Designs</th>
+                      <th className="py-3 px-3">Colours (Combined)</th>
+                      <th className="py-3 px-3 text-right">Order Qty</th>
+                      <th className="py-3 px-3 text-right">Produced Qty</th>
+                      <th className="py-3 px-3 text-right">Pending Qty</th>
+                      <th className="py-3 px-4 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {groupedPendingItems.map((group, idx) => (
+                      <tr
+                        key={group.groupKey}
+                        className={`transition-colors hover:bg-blue-50/40 ${
+                          idx % 2 === 1 ? "bg-slate-50/50" : "bg-white"
+                        }`}
+                      >
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900 text-sm">
+                            {group.partyName}
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                            Order #{group.orderNo}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3 font-semibold text-slate-800">
+                          {group.designs.join(", ") || "-"}
+                        </td>
+
+                        <td className="py-3.5 px-3 text-slate-700">
+                          <div className="flex flex-wrap gap-1">
+                            {group.colours.map((c, i) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                            {group.colours.length === 0 && "-"}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3 font-semibold text-slate-900 text-right">
+                          {group.totalOrder}
+                        </td>
+
+                        <td className="py-3.5 px-3 font-semibold text-emerald-700 text-right">
+                          {group.totalProduced}
+                        </td>
+
+                        <td className="py-3.5 px-3 font-bold text-amber-700 text-right">
+                          {group.totalPending}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            disabled={submittingGroupKey === group.groupKey}
+                            onClick={() => handleDispatchGroup(group)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 mx-auto"
+                          >
+                            {submittingGroupKey === group.groupKey ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5" />
+                            )}
+                            Done
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* MOBILE CARD VIEW */}
+              <div className="block md:hidden divide-y divide-slate-200">
+                {groupedPendingItems.map((group) => (
+                  <div key={group.groupKey} className="p-4 space-y-3 bg-white">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-bold text-slate-900 text-sm">
                           {group.partyName}
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                        </h3>
+                        <p className="text-xs text-slate-500 font-mono mt-0.5">
                           Order #{group.orderNo}
-                        </div>
-                      </td>
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                        Pending: {group.totalPending}
+                      </span>
+                    </div>
 
-                      <td className="py-3.5 px-3 font-semibold text-slate-800">
-                        {group.designs.join(", ") || "-"}
-                      </td>
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Designs</span>
+                        <span className="font-semibold text-slate-800">{group.designs.join(", ") || "-"}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Order / Produced</span>
+                        <span className="font-semibold text-slate-800">{group.totalOrder} / <span className="text-emerald-700">{group.totalProduced}</span></span>
+                      </div>
+                    </div>
 
-                      <td className="py-3.5 px-3 text-slate-700">
+                    {group.colours.length > 0 && (
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1">Colours</span>
                         <div className="flex flex-wrap gap-1">
                           {group.colours.map((c, i) => (
                             <span
@@ -620,49 +768,36 @@ export default function Dispatch() {
                               {c}
                             </span>
                           ))}
-                          {group.colours.length === 0 && "-"}
                         </div>
-                      </td>
+                      </div>
+                    )}
 
-                      <td className="py-3.5 px-3 font-semibold text-slate-900 text-right">
-                        {group.totalOrder}
-                      </td>
-
-                      <td className="py-3.5 px-3 font-semibold text-emerald-700 text-right">
-                        {group.totalProduced}
-                      </td>
-
-                      <td className="py-3.5 px-3 font-bold text-amber-700 text-right">
-                        {group.totalPending}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-center">
-                        <button
-                          disabled={submittingGroupKey === group.groupKey}
-                          onClick={() => handleDispatchGroup(group)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 mx-auto"
-                        >
-                          {submittingGroupKey === group.groupKey ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Check className="w-3.5 h-3.5" />
-                          )}
-                          Done
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                    <div className="pt-1 flex justify-end">
+                      <button
+                        disabled={submittingGroupKey === group.groupKey}
+                        onClick={() => handleDispatchGroup(group)}
+                        className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        {submittingGroupKey === group.groupKey ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Check className="w-3.5 h-3.5" />
+                        )}
+                        Complete Dispatch
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
 
-      {/* TAB 2: DISPATCH HISTORY TABLE */}
+      {/* TAB 2: DISPATCH HISTORY */}
       {activeTab === "history" && (
         <div className="bg-white rounded-b-xl border border-slate-200 shadow-sm overflow-hidden">
-          {filteredHistoryItems.length === 0 ? (
+          {groupedHistoryItems.length === 0 ? (
             <div className="p-12 text-center flex flex-col items-center justify-center">
               <FileText className="w-12 h-12 text-slate-300 mb-3" />
               <p className="text-base font-semibold text-slate-800">
@@ -673,96 +808,158 @@ export default function Dispatch() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-100 text-slate-600 uppercase font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-3">Dispatch Date</th>
-                    <th className="py-3 px-3">Party Name</th>
-                    <th className="py-3 px-3">Design</th>
-                    <th className="py-3 px-3">Colour</th>
-                    <th className="py-3 px-3 text-right">Dispatched Qty</th>
-                    <th className="py-3 px-3">Remarks</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredHistoryItems.map((log, idx) => {
-                    const item = log.order_items;
-                    const qty =
-                      log.dispatch_qty ??
-                      log.dispatched_qty ??
-                      log.qty ??
-                      log.quantity ??
-                      0;
-
-                    return (
+            <>
+              {/* DESKTOP TABLE VIEW */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-100 text-slate-600 uppercase font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-3">Dispatch Date</th>
+                      <th className="py-3 px-4">Party Name / Order No</th>
+                      <th className="py-3 px-3">Designs</th>
+                      <th className="py-3 px-3">Colours (Combined)</th>
+                      <th className="py-3 px-3 text-right">Total Dispatched Qty</th>
+                      <th className="py-3 px-3">Remarks</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {groupedHistoryItems.map((group, idx) => (
                       <tr
-                        key={log.id}
+                        key={group.groupKey}
                         className={`transition-colors hover:bg-blue-50/40 ${
                           idx % 2 === 1 ? "bg-slate-50/50" : "bg-white"
                         }`}
                       >
-                        <td className="py-3 px-3 font-semibold text-slate-700">
-                          {log.dispatch_date || "-"}
+                        <td className="py-3.5 px-3 font-semibold text-slate-700">
+                          {group.dispatchDate || "-"}
                         </td>
 
-                        <td className="py-3 px-3 font-bold text-slate-900">
-                          {item?.orders?.parties?.name || "-"}
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            Order #{item?.orders?.order_no || "-"}
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900 text-sm">
+                            {group.partyName}
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                            Order #{group.orderNo}
                           </div>
                         </td>
 
-                        <td className="py-3 px-3 font-semibold text-slate-800">
-                          {item?.designs?.design_name || "-"}
+                        <td className="py-3.5 px-3 font-semibold text-slate-800">
+                          {group.designs.join(", ") || "-"}
                         </td>
 
-                        <td className="py-3 px-3 text-slate-700">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                            {item?.colours?.colour_name || "-"}
+                        <td className="py-3.5 px-3 text-slate-700">
+                          <div className="flex flex-wrap gap-1">
+                            {group.colours.map((c, i) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                            {group.colours.length === 0 && "-"}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-3 font-bold text-emerald-700 text-right text-sm">
+                          {group.totalDispatched}{" "}
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            {group.unit}
                           </span>
                         </td>
 
-                        <td className="py-3 px-3 font-bold text-emerald-700 text-right">
-                          {qty} <span className="text-[10px] text-slate-500 font-normal">{item?.unit || "Mtr"}</span>
+                        <td className="py-3.5 px-3 text-slate-500 italic max-w-[200px] truncate">
+                          {group.remarks.join(", ") || "-"}
                         </td>
 
-                        <td className="py-3 px-3 text-slate-500 italic max-w-[200px] truncate">
-                          {log.remarks || "-"}
+                        <td className="py-3.5 px-3">
+                          {renderStatusBadge(group.status)}
                         </td>
 
-                        <td className="py-3 px-3">
-                          {renderStatusBadge(log.status || "Fully Dispatched")}
-                        </td>
-
-                        <td className="py-3 px-3 text-right">
+                        <td className="py-3.5 px-3 text-right">
                           <button
-                            onClick={() =>
-                              handlePrintChallan({
-                                party_name: item?.orders?.parties?.name || "",
-                                design_name: item?.designs?.design_name || "",
-                                colour_name: item?.colours?.colour_name || "",
-                                order_no: item?.orders?.order_no || "",
-                                dispatch_qty: qty,
-                                unit: item?.unit || "Mtr",
-                                remarks: log.remarks || "",
-                                dispatch_date: log.dispatch_date || "",
-                              })
-                            }
-                            className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1"
+                            onClick={() => handlePrintChallanGroup(group)}
+                            className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1"
                           >
                             <Printer className="w-3.5 h-3.5" />
                             Challan
                           </button>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* MOBILE CARD VIEW */}
+              <div className="block md:hidden divide-y divide-slate-200">
+                {groupedHistoryItems.map((group) => (
+                  <div key={group.groupKey} className="p-4 space-y-3 bg-white">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-bold text-slate-900 text-sm">
+                          {group.partyName}
+                        </h3>
+                        <p className="text-xs text-slate-500 font-mono mt-0.5">
+                          Order #{group.orderNo}
+                        </p>
+                      </div>
+                      {renderStatusBadge(group.status)}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Dispatch Date</span>
+                        <span className="font-semibold text-slate-800">{group.dispatchDate || "-"}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Total Dispatched</span>
+                        <span className="font-bold text-emerald-700">{group.totalDispatched} {group.unit}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold">Designs:</span>{" "}
+                        <span className="font-medium text-slate-800">{group.designs.join(", ") || "-"}</span>
+                      </div>
+                      {group.colours.length > 0 && (
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1">Colours</span>
+                          <div className="flex flex-wrap gap-1">
+                            {group.colours.map((c, i) => (
+                              <span
+                                key={i}
+                                className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {group.remarks.length > 0 && group.remarks.join("") !== "" && (
+                        <div className="italic text-slate-500 text-[11px]">
+                          Remarks: {group.remarks.join(", ")}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-1 flex justify-end">
+                      <button
+                        onClick={() => handlePrintChallanGroup(group)}
+                        className="w-full sm:w-auto bg-slate-700 hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        Print Challan
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
