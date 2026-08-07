@@ -748,16 +748,25 @@ async function handlePartialDispatch() {
                         </td>
 
                         <td className="py-3.5 px-3 font-semibold text-slate-900 text-right">
-                          {group.totalOrder}
-                        </td>
+  {group.totalOrder}
+  <span className="ml-1 text-[10px] text-slate-500 font-normal">
+    {group.jobs[0]?.order_items?.unit}
+  </span>
+</td>
 
                         <td className="py-3.5 px-3 font-semibold text-emerald-700 text-right">
-                          {group.totalProduced}
-                        </td>
+  {group.totalProduced}
+  <span className="ml-1 text-[10px] text-slate-500 font-normal">
+    {group.jobs[0]?.order_items?.unit}
+  </span>
+</td>
 
                         <td className="py-3.5 px-3 font-bold text-amber-700 text-right">
-                          {group.totalPending}
-                        </td>
+  {group.totalPending}
+  <span className="ml-1 text-[10px] text-slate-500 font-normal">
+    {group.jobs[0]?.order_items?.unit}
+  </span>
+</td>
 
                         <td className="py-3.5 px-4 text-center">
   <div className="flex justify-center gap-2">
