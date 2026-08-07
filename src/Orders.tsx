@@ -55,9 +55,6 @@ export default function Orders() {
   // Order Header State
   const [orderNo, setOrderNo] = useState<number>(1001);
   const [partyId, setPartyId] = useState<number | "">("");
-  const [deliveryDate, setDeliveryDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
   const [formItems, setFormItems] = useState<OrderItemForm[]>([]);
 
   // Item Entry State
@@ -189,7 +186,6 @@ export default function Orders() {
 
   const handleResetForm = () => {
     setPartyId("");
-    setDeliveryDate(new Date().toISOString().split("T")[0]);
     setFormItems([]);
     setSelectedDesignId("");
     setColourSearch("");
@@ -320,7 +316,6 @@ export default function Orders() {
         .insert({
           order_no: Number(orderNo),
           party_id: Number(partyId),
-          delivery_date: deliveryDate,
         })
         .select()
         .single();
@@ -391,7 +386,7 @@ export default function Orders() {
 
       <form onSubmit={handleSaveOrder} className="space-y-6">
         {/* Order Header Information */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
               Order No
@@ -424,19 +419,6 @@ export default function Orders() {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Delivery Date
-            </label>
-            <input
-              type="date"
-              value={deliveryDate}
-              onChange={(e) => setDeliveryDate(e.target.value)}
-              className="w-full p-2.5 text-sm bg-white border border-slate-300 rounded-lg font-medium text-slate-800"
-              required
-            />
           </div>
         </div>
 
