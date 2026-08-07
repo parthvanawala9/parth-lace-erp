@@ -1,10 +1,25 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "./services/supabase";
+import {
+  Plus,
+  Trash2,
+  Save,
+  Search,
+  Loader2,
+  FileText,
+  CheckCircle2,
+  Package,
+  Layers,
+  ListChecks,
+  RotateCcw,
+  Star
+} from "lucide-react";
 
 type Party = {
   id: number;
-  name: string;
+  name?: string;
+  party_name?: string;
+  favourite_colours?: string[];
 };
 
 type Design = {
@@ -17,705 +32,660 @@ type Colour = {
   colour_name: string;
 };
 
-type Item = {
-  design_id: string;
-  colour_id: string;
-  quantity: string;
-  unit: string;
+type OrderItemForm = {
+  design_id: number;
+  design_name: string;
+  colour_id: number;
+  colour_name: string;
+  quantity: number;
+  unit: "Pcs" | "Carton";
   remarks: string;
-  is_mix_colour: boolean;
-  mix_type: "Use Party Colour Chart" | "Custom Colours";
-  selected_colour_ids: number[];
-  show_extra_colours: boolean;
-  update_party_chart: boolean;
 };
 
-export default function Orders() {
-  const navigate = useNavigate();
+const UNIT_OPTIONS: ("Pcs" | "Carton")[] = ["Pcs", "Carton"];
 
+export default function Orders() {
   const [parties, setParties] = useState<Party[]>([]);
   const [designs, setDesigns] = useState<Design[]>([]);
   const [colours, setColours] = useState<Colour[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
 
-  const [partyId, setPartyId] = useState("");
-  const [deliveryDate, setDeliveryDate] = useState("");
-  const [remarks, setRemarks] = useState("");
-  const [partyDefaultColourIds, setPartyDefaultColourIds] = useState<number[]>([]);
+  // Order Header State
+  const [orderNo, setOrderNo] = useState<number>(1001);
+  const [partyId, setPartyId] = useState<number | "">("");
+  const [deliveryDate, setDeliveryDate] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
+  const [formItems, setFormItems] = useState<OrderItemForm[]>([]);
 
-  const [items, setItems] = useState<Item[]>([
-    {
-      design_id: "",
-      colour_id: "",
-      quantity: "",
-      unit: "Pieces",
-      remarks: "",
-      is_mix_colour: false,
-      mix_type: "Use Party Colour Chart",
-      selected_colour_ids: [],
-      show_extra_colours: false,
-      update_party_chart: false,
-    },
-  ]);
+  // Item Entry State
+  const [selectedDesignId, setSelectedDesignId] = useState<number | "">("");
+  const [colourSearch, setColourSearch] = useState<string>("");
+  const [selectedColourIds, setSelectedColourIds] = useState<number[]>([]);
+  const [totalQty, setTotalQty] = useState<string>("5");
+  const [unit, setUnit] = useState<"Pcs" | "Carton">("Pcs");
+  const [autoColourSource, setAutoColourSource] = useState<string>("");
 
   useEffect(() => {
-    loadMasters();
+    loadMasterData();
+    fetchLatestOrderNo();
   }, []);
 
-  async function loadMasters() {
-    const [pRes, dRes, cRes] = await Promise.all([
-      supabase.from("parties").select("id, name"),
-      supabase.from("designs").select("id, design_name"),
-      supabase.from("colours").select("id, colour_name"),
-    ]);
+  async function loadMasterData() {
+    setLoading(true);
+    try {
+      const [partiesRes, designsRes, coloursRes] = await Promise.all([
+        supabase
+          .from("parties")
+          .select("id, name, party_name, favourite_colours")
+          .order("name", { ascending: true }),
+        supabase
+          .from("designs")
+          .select("id, design_name")
+          .order("design_name", { ascending: true }),
+        supabase
+          .from("colours")
+          .select("id, colour_name")
+          .order("colour_name", { ascending: true }),
+      ]);
 
-    if (pRes.data) setParties(pRes.data);
-    if (dRes.data) setDesigns(dRes.data);
-    if (cRes.data) setColours(cRes.data);
-  }
-
-  async function handlePartyChange(selectedPartyId: string) {
-    setPartyId(selectedPartyId);
-
-    if (!selectedPartyId) {
-      setPartyDefaultColourIds([]);
-      return;
-    }
-
-    const { data: defaultColours } = await supabase
-      .from("party_default_colours")
-      .select("colour_id")
-      .eq("party_id", Number(selectedPartyId));
-
-    const defaultIds = defaultColours ? defaultColours.map((dc) => dc.colour_id) : [];
-    setPartyDefaultColourIds(defaultIds);
-
-    setItems((prevItems) =>
-      prevItems.map((item) => {
-        if (item.is_mix_colour && item.mix_type === "Use Party Colour Chart") {
-          return {
-            ...item,
-            selected_colour_ids: Array.from(new Set(defaultIds)),
-          };
-        }
-        return item;
-      })
-    );
-  }
-
-  function addRow() {
-    const defaultIds = partyDefaultColourIds;
-    setItems((prev) => [
-      ...prev,
-      {
-        design_id: "",
-        colour_id: "",
-        quantity: "",
-        unit: "Pieces",
-        remarks: "",
-        is_mix_colour: defaultIds.length > 0,
-        mix_type: defaultIds.length > 0 ? "Use Party Colour Chart" : "Custom Colours",
-        selected_colour_ids: defaultIds.length > 0 ? [...defaultIds] : [],
-        show_extra_colours: false,
-        update_party_chart: false,
-      },
-    ]);
-  }
-
-  function removeRow(index: number) {
-    if (items.length === 1) {
-      alert("Order must contain at least one item.");
-      return;
-    }
-    setItems((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  function updateRow<K extends keyof Item>(index: number, field: K, value: Item[K]) {
-    setItems((prevItems) =>
-      prevItems.map((item, i) => {
-        if (i !== index) return item;
-
-        const updatedItem = { ...item, [field]: value };
-
-        if (field === "mix_type") {
-          if (value === "Use Party Colour Chart") {
-            updatedItem.selected_colour_ids = Array.from(new Set(partyDefaultColourIds));
-            updatedItem.show_extra_colours = false;
-          }
-        }
-
-        if (field === "is_mix_colour" && value === true) {
-          if (partyDefaultColourIds.length > 0) {
-            updatedItem.mix_type = "Use Party Colour Chart";
-            updatedItem.selected_colour_ids = Array.from(new Set(partyDefaultColourIds));
-          } else {
-            updatedItem.mix_type = "Custom Colours";
-          }
-        }
-
-        return updatedItem;
-      })
-    );
-  }
-
-  function toggleColourSelection(rowIndex: number, colourId: number) {
-    setItems((prevItems) =>
-      prevItems.map((item, i) => {
-        if (i !== rowIndex) return item;
-        const currentSelected = item.selected_colour_ids;
-        const exists = currentSelected.includes(colourId);
-
-        const newSelected = exists
-          ? currentSelected.filter((id) => id !== colourId)
-          : Array.from(new Set([...currentSelected, colourId]));
-
-        return { ...item, selected_colour_ids: newSelected };
-      })
-    );
-  }
-
-  function selectAllColours(rowIndex: number) {
-    setItems((prevItems) =>
-      prevItems.map((item, i) =>
-        i === rowIndex ? { ...item, selected_colour_ids: colours.map((c) => c.id) } : item
-      )
-    );
-  }
-
-  function clearAllColours(rowIndex: number) {
-    setItems((prevItems) =>
-      prevItems.map((item, i) => (i === rowIndex ? { ...item, selected_colour_ids: [] } : item))
-    );
-  }
-
-  async function saveOrder() {
-    if (!partyId) {
-      alert("Select Party");
-      return;
-    }
-
-    for (const item of items) {
-      if (!item.design_id || !item.quantity || Number(item.quantity) <= 0) {
-        alert("Please complete all item details.");
-        return;
+      if (partiesRes.error) {
+        console.error("Error fetching parties:", partiesRes.error.message);
+      } else if (partiesRes.data) {
+        setParties(partiesRes.data as Party[]);
       }
 
-      if (!item.is_mix_colour) {
-        if (!item.colour_id) {
-          alert("Please select a colour for non-mixed rows.");
-          return;
-        }
+      if (designsRes.data) setDesigns(designsRes.data as Design[]);
+
+      if (coloursRes.data && coloursRes.data.length > 0) {
+        setColours(coloursRes.data as Colour[]);
       } else {
-        if (item.selected_colour_ids.length === 0) {
-          alert("Please select at least one colour for Mix Colour rows.");
-          return;
-        }
+        const { data: chartData } = await supabase
+          .from("colourchart")
+          .select("id, colour_name")
+          .order("colour_name", { ascending: true });
+        if (chartData) setColours(chartData as unknown as Colour[]);
       }
+    } catch (err) {
+      console.error("Error loading master data:", err);
+    } finally {
+      setLoading(false);
     }
-
-    const { data: order, error } = await supabase
-      .from("orders")
-      .insert({
-        party_id: Number(partyId),
-        delivery_date: deliveryDate || null,
-        remarks,
-      })
-      .select()
-      .single();
-
-    if (error || !order) {
-      alert(error?.message || "Error creating order.");
-      return;
-    }
-
-    const orderItemsToInsert = [];
-    const allUpdatedPartyColours = new Set<number>(partyDefaultColourIds);
-    let partyChartUpdateNeeded = false;
-
-    for (const item of items) {
-      if (!item.is_mix_colour) {
-        orderItemsToInsert.push({
-          order_id: order.id,
-          design_id: Number(item.design_id),
-          colour_id: Number(item.colour_id),
-          quantity: Number(item.quantity),
-          unit: item.unit,
-          machine_id: null,
-          remarks: item.remarks,
-        });
-      } else {
-        const uniqueSelectedIds = Array.from(new Set(item.selected_colour_ids));
-        const selectedNames = colours
-          .filter((c) => uniqueSelectedIds.includes(c.id))
-          .map((c) => c.colour_name);
-
-        const lines = ["[Mix Colour]", `Type: ${item.mix_type}`, "Colours:", ...selectedNames];
-        if (item.remarks.trim()) {
-          lines.push(`Remarks: ${item.remarks.trim()}`);
-        }
-
-        orderItemsToInsert.push({
-          order_id: order.id,
-          design_id: Number(item.design_id),
-          colour_id: null,
-          quantity: Number(item.quantity),
-          unit: item.unit,
-          machine_id: null,
-          remarks: lines.join("\n"),
-        });
-
-        if (item.update_party_chart) {
-          partyChartUpdateNeeded = true;
-          uniqueSelectedIds.forEach((cId) => allUpdatedPartyColours.add(cId));
-        }
-      }
-    }
-
-    const { error: itemsError } = await supabase.from("order_items").insert(orderItemsToInsert);
-
-    if (itemsError) {
-      alert(`Error saving items: ${itemsError.message}`);
-      return;
-    }
-
-    if (partyChartUpdateNeeded) {
-      const finalPartyColourArray = Array.from(allUpdatedPartyColours);
-      await supabase.from("party_default_colours").delete().eq("party_id", Number(partyId));
-
-      if (finalPartyColourArray.length > 0) {
-        const rowsToInsert = finalPartyColourArray.map((cId) => ({
-          party_id: Number(partyId),
-          colour_id: cId,
-        }));
-        await supabase.from("party_default_colours").insert(rowsToInsert);
-      }
-    }
-
-    alert("Order Saved Successfully");
-    navigate("/orders");
   }
 
-  const renderMixColourContent = (row: Item, index: number) => {
-    const chartColourObjects = colours.filter((c) => partyDefaultColourIds.includes(c.id));
-    const remainingColourObjects = colours.filter((c) => !partyDefaultColourIds.includes(c.id));
+  async function fetchLatestOrderNo() {
+    try {
+      const { data } = await supabase
+        .from("orders")
+        .select("order_no")
+        .order("order_no", { ascending: false })
+        .limit(1);
 
-    return (
-      <div className="space-y-3 w-full">
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap">
-            <input
-              type="radio"
-              name={`mix_type_${index}`}
-              value="Use Party Colour Chart"
-              checked={row.mix_type === "Use Party Colour Chart"}
-              onChange={() => updateRow(index, "mix_type", "Use Party Colour Chart")}
-            />
-            Use Party Colour Chart
-          </label>
+      if (data && data.length > 0 && data[0].order_no) {
+        setOrderNo(Number(data[0].order_no) + 1);
+      } else {
+        setOrderNo(1001);
+      }
+    } catch (err) {
+      console.error("Error fetching order number:", err);
+    }
+  }
 
-          <label className="flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap">
-            <input
-              type="radio"
-              name={`mix_type_${index}`}
-              value="Custom Colours"
-              checked={row.mix_type === "Custom Colours"}
-              onChange={() => updateRow(index, "mix_type", "Custom Colours")}
-            />
-            Custom Colours
-          </label>
-        </div>
+  // Auto-catch favourite colours when party is selected
+  const handlePartyChange = async (selectedId: number | "") => {
+    setPartyId(selectedId);
+    setAutoColourSource("");
 
-        {row.mix_type === "Use Party Colour Chart" && (
-          <div className="border rounded p-3 bg-slate-50 space-y-3 w-full box-border">
-            <div className="font-semibold text-xs text-slate-500 uppercase tracking-wider">
-              Party Chart
-            </div>
+    if (!selectedId) {
+      setSelectedColourIds([]);
+      return;
+    }
 
-            <div className="space-y-1 max-h-36 overflow-y-auto">
-              {chartColourObjects.length === 0 ? (
-                <div className="text-xs text-slate-400 italic">No party favourite colours set.</div>
-              ) : (
-                chartColourObjects.map((c) => (
-                  <label
-                    key={c.id}
-                    className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={row.selected_colour_ids.includes(c.id)}
-                      onChange={() => toggleColourSelection(index, c.id)}
-                    />
-                    <span>{c.colour_name}</span>
-                  </label>
-                ))
-              )}
-            </div>
+    const matchedParty = parties.find((p) => p.id === selectedId);
+    let autoColourIds: number[] = [];
 
-            {!row.show_extra_colours ? (
-              <button
-                type="button"
-                onClick={() => updateRow(index, "show_extra_colours", true)}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 min-h-[32px]"
-              >
-                + Add More Colours
-              </button>
-            ) : (
-              <div className="pt-2 border-t space-y-2">
-                <div className="font-semibold text-xs text-slate-500 uppercase tracking-wider">
-                  Extra Colours
-                </div>
-                <div className="space-y-1 max-h-36 overflow-y-auto">
-                  {remainingColourObjects.map((c) => (
-                    <label
-                      key={c.id}
-                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={row.selected_colour_ids.includes(c.id)}
-                        onChange={() => toggleColourSelection(index, c.id)}
-                      />
-                      <span>{c.colour_name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
+    // 1. Try catching colours from party_program_layout
+    try {
+      const { data: layoutData } = await supabase
+        .from("party_program_layout")
+        .select("colour_id")
+        .eq("party_id", selectedId);
 
-            <div className="pt-2 border-t">
-              <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="rounded text-blue-600"
-                  checked={row.update_party_chart}
-                  onChange={(e) => updateRow(index, "update_party_chart", e.target.checked)}
-                />
-                Update Party Colour Chart
-              </label>
-            </div>
-          </div>
-        )}
+      if (layoutData && layoutData.length > 0) {
+        autoColourIds = layoutData
+          .map((row: any) => Number(row.colour_id))
+          .filter((id: number) => !isNaN(id) && colours.some((c) => c.id === id));
+      }
+    } catch (err) {
+      console.error("Error fetching program layout:", err);
+    }
 
-        {row.mix_type === "Custom Colours" && (
-          <div className="border rounded p-3 bg-slate-50 space-y-2 w-full box-border">
-            <div className="flex gap-2 mb-2">
-              <button
-                type="button"
-                onClick={() => selectAllColours(index)}
-                className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-3 py-1.5 rounded font-medium min-h-[32px] flex-1 sm:flex-none"
-              >
-                Select All
-              </button>
-              <button
-                type="button"
-                onClick={() => clearAllColours(index)}
-                className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-3 py-1.5 rounded font-medium min-h-[32px] flex-1 sm:flex-none"
-              >
-                Clear All
-              </button>
-            </div>
+    // 2. Fallback or merge with favourite_colours array from Party Master
+    if (matchedParty?.favourite_colours && matchedParty.favourite_colours.length > 0) {
+      const favNames = matchedParty.favourite_colours.map((name) =>
+        name.trim().toLowerCase()
+      );
 
-            <div className="max-h-40 overflow-y-auto space-y-1">
-              {colours.map((c) => (
-                <label
-                  key={c.id}
-                  className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-100 p-1 rounded"
-                >
-                  <input
-                    type="checkbox"
-                    checked={row.selected_colour_ids.includes(c.id)}
-                    onChange={() => toggleColourSelection(index, c.id)}
-                  />
-                  <span>{c.colour_name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      const matchedIds = colours
+        .filter((c) => favNames.includes(c.colour_name.trim().toLowerCase()))
+        .map((c) => c.id);
+
+      autoColourIds = Array.from(new Set([...autoColourIds, ...matchedIds]));
+    }
+
+    if (autoColourIds.length > 0) {
+      setSelectedColourIds(autoColourIds);
+      setAutoColourSource(
+        `Auto-loaded ${autoColourIds.length} favourite colour(s) for ${
+          matchedParty?.name || matchedParty?.party_name || "selected party"
+        }`
+      );
+    } else {
+      setSelectedColourIds([]);
+    }
+  };
+
+  const handleResetForm = () => {
+    setPartyId("");
+    setDeliveryDate(new Date().toISOString().split("T")[0]);
+    setFormItems([]);
+    setSelectedDesignId("");
+    setColourSearch("");
+    setSelectedColourIds([]);
+    setTotalQty("5");
+    setUnit("Pcs");
+    setAutoColourSource("");
+    fetchLatestOrderNo();
+  };
+
+  const handleToggleColourSelect = (colourId: number) => {
+    setSelectedColourIds((prev) =>
+      prev.includes(colourId)
+        ? prev.filter((id) => id !== colourId)
+        : [...prev, colourId]
     );
   };
 
+  const handleSelectAllFilteredColours = () => {
+    const filteredIds = filteredColours.map((c) => c.id);
+    const allSelected = filteredIds.every((id) => selectedColourIds.includes(id));
+
+    if (allSelected) {
+      setSelectedColourIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+    } else {
+      setSelectedColourIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+    }
+  };
+
+  // ADD 1 COMBINED MIX LINE
+  const handleAddAsCombinedMixItem = () => {
+    if (!selectedDesignId) {
+      alert("Please select a Design first.");
+      return;
+    }
+
+    if (selectedColourIds.length === 0) {
+      alert("Please select at least 1 colour.");
+      return;
+    }
+
+    const designObj = designs.find((d) => d.id === Number(selectedDesignId));
+    if (!designObj) return;
+
+    const selectedColourNames = colours
+      .filter((c) => selectedColourIds.includes(c.id))
+      .map((c) => c.colour_name);
+
+    const mixColourObj =
+      colours.find(
+        (c) =>
+          c.colour_name.toUpperCase() === "MIX" ||
+          c.colour_name.toUpperCase() === "ASSORTED"
+      ) || colours[0];
+
+    const qtyNum = Number(totalQty) || 1;
+    const colorCount = selectedColourNames.length;
+    const colorListFormatted = selectedColourNames.join(", ");
+
+    const newItem: OrderItemForm = {
+      design_id: designObj.id,
+      design_name: designObj.design_name,
+      colour_id: mixColourObj?.id || selectedColourIds[0],
+      colour_name: `MIX (${colorCount} Colours)`,
+      quantity: qtyNum,
+      unit: unit,
+      remarks: `${colorCount} Colours Mixed: ${colorListFormatted}`,
+    };
+
+    setFormItems((prev) => [...prev, newItem]);
+    setSelectedColourIds([]);
+    setColourSearch("");
+  };
+
+  // ADD SEPARATE LINES FOR EACH CHECKED COLOUR
+  const handleAddAsSeparateLines = () => {
+    if (!selectedDesignId) {
+      alert("Please select a Design first.");
+      return;
+    }
+
+    if (selectedColourIds.length === 0) {
+      alert("Please select colours.");
+      return;
+    }
+
+    const designObj = designs.find((d) => d.id === Number(selectedDesignId));
+    if (!designObj) return;
+
+    const qtyPerLine = Number(totalQty) || 1;
+
+    const newItems: OrderItemForm[] = selectedColourIds.map((cId) => {
+      const colourObj = colours.find((c) => c.id === cId);
+      return {
+        design_id: designObj.id,
+        design_name: designObj.design_name,
+        colour_id: cId,
+        colour_name: colourObj?.colour_name || "N/A",
+        quantity: qtyPerLine,
+        unit: unit,
+        remarks: "",
+      };
+    });
+
+    setFormItems((prev) => [...prev, ...newItems]);
+    setSelectedColourIds([]);
+    setColourSearch("");
+  };
+
+  const handleRemoveFormItem = (index: number) => {
+    setFormItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!partyId) {
+      alert("Please select a party.");
+      return;
+    }
+
+    if (formItems.length === 0) {
+      alert("Please add at least one item to the order list.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: newOrder, error: createOrderErr } = await supabase
+        .from("orders")
+        .insert({
+          order_no: Number(orderNo),
+          party_id: Number(partyId),
+          delivery_date: deliveryDate,
+        })
+        .select()
+        .single();
+
+      if (createOrderErr) throw createOrderErr;
+
+      const itemsToInsert = formItems.map((item) => ({
+        order_id: newOrder.id,
+        design_id: item.design_id,
+        colour_id: item.colour_id,
+        quantity: item.quantity,
+        unit: item.unit,
+        remarks: item.remarks || "",
+      }));
+
+      const { error: itemsErr } = await supabase.from("order_items").insert(itemsToInsert);
+      if (itemsErr) throw itemsErr;
+
+      alert("Order saved successfully!");
+      handleResetForm();
+    } catch (err: any) {
+      console.error("Error saving order:", err);
+      alert(err.message || "Failed to save order");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filteredColours = useMemo(() => {
+    if (!colourSearch.trim()) return colours;
+    return colours.filter((c) =>
+      c.colour_name.toLowerCase().includes(colourSearch.toLowerCase())
+    );
+  }, [colours, colourSearch]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[70vh]">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-3" />
+        <p className="text-slate-600 text-sm font-medium">Loading Form...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-4 sm:p-8 max-w-full overflow-x-hidden">
-      {/* 1. Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Order Entry</h1>
+    <div className="p-6 space-y-6 max-w-[1200px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-200 pb-5">
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 bg-blue-50 rounded-xl border border-blue-100">
+            <FileText className="w-6 h-6 text-blue-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Order Punching</h1>
+            <p className="text-sm text-slate-500 mt-0.5">Punch Order Lines with Auto Favourite Colours</p>
+          </div>
+        </div>
 
         <button
-          onClick={saveOrder}
-          className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition cursor-pointer"
+          onClick={handleResetForm}
+          type="button"
+          className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-300"
         >
-          Save Order
+          <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+          Reset Form
         </button>
       </div>
 
-      {/* 2. Top section */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <select
-          className="border rounded-lg p-3 w-full bg-white"
-          value={partyId}
-          onChange={(e) => handlePartyChange(e.target.value)}
-        >
-          <option value="">Select Party</option>
-          {parties.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-
-        <input
-          type="date"
-          className="border rounded-lg p-3 w-full bg-white"
-          value={deliveryDate}
-          onChange={(e) => setDeliveryDate(e.target.value)}
-        />
-
-        <input
-          className="border rounded-lg p-3 w-full bg-white"
-          placeholder="Remarks"
-          value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
-        />
-      </div>
-
-      {/* 3a. Mobile View Cards (< 640px) */}
-      <div className="block sm:hidden space-y-4">
-        {items.map((row, index) => (
-          <div
-            key={index}
-            className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-4 relative"
-          >
-            <div className="flex justify-between items-center border-b pb-2">
-              <span className="font-semibold text-sm text-slate-700">Item #{index + 1}</span>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded text-blue-600"
-                    checked={row.is_mix_colour}
-                    onChange={(e) => updateRow(index, "is_mix_colour", e.target.checked)}
-                  />
-                  <span>Mix Colour</span>
-                </label>
-
-                {items.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeRow(index)}
-                    className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 rounded border border-red-200"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Design */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-                Design
-              </label>
-              <select
-                className="border w-full p-2.5 rounded-lg text-sm bg-white"
-                value={row.design_id}
-                onChange={(e) => updateRow(index, "design_id", e.target.value)}
-              >
-                <option value="">Select Design</option>
-                {designs.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.design_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Colour / Mix Colour */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-                Colour
-              </label>
-              {!row.is_mix_colour ? (
-                <select
-                  className="border w-full p-2.5 rounded-lg text-sm bg-white"
-                  value={row.colour_id}
-                  onChange={(e) => updateRow(index, "colour_id", e.target.value)}
-                >
-                  <option value="">Select Colour</option>
-                  {colours.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.colour_name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                renderMixColourContent(row, index)
-              )}
-            </div>
-
-            {/* Quantity & Unit */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-                  Quantity
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  className="border w-full p-2.5 rounded-lg text-sm bg-white"
-                  placeholder="Qty"
-                  value={row.quantity}
-                  onChange={(e) => updateRow(index, "quantity", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-                  Unit
-                </label>
-                <select
-                  className="border w-full p-2.5 rounded-lg text-sm bg-white"
-                  value={row.unit}
-                  onChange={(e) => updateRow(index, "unit", e.target.value)}
-                >
-                  <option>Pieces</option>
-                  <option>Parcel</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Remarks */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wider">
-                Remarks
-              </label>
-              <input
-                className="border w-full p-2.5 rounded-lg text-sm bg-white"
-                placeholder="Item remarks..."
-                value={row.remarks}
-                onChange={(e) => updateRow(index, "remarks", e.target.value)}
-              />
-            </div>
+      <form onSubmit={handleSaveOrder} className="space-y-6">
+        {/* Order Header Information */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Order No
+            </label>
+            <input
+              type="number"
+              value={orderNo}
+              onChange={(e) => setOrderNo(Number(e.target.value))}
+              className="w-full p-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg font-bold text-blue-700"
+              required
+            />
           </div>
-        ))}
-      </div>
 
-      {/* 3b. Desktop View Table (>= 640px) */}
-      <div className="hidden sm:block overflow-x-auto w-full bg-white rounded-xl shadow">
-        <table className="w-full min-w-[700px] bg-white rounded-xl">
-          <thead className="bg-slate-100">
-            <tr>
-              <th className="p-3 text-left">Design</th>
-              <th className="p-3 text-center">Mix Colour</th>
-              <th className="p-3 text-left">Colour</th>
-              <th className="p-3 text-left">Qty</th>
-              <th className="p-3 text-left">Unit</th>
-              <th className="p-3 text-center">Production</th>
-              <th className="p-3 text-left">Remarks</th>
-              <th className="p-3 text-center">Action</th>
-            </tr>
-          </thead>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Party Name
+            </label>
+            <select
+              value={partyId}
+              onChange={(e) =>
+                handlePartyChange(e.target.value ? Number(e.target.value) : "")
+              }
+              className="w-full p-2.5 text-sm bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
+              required
+            >
+              <option value="">Select Party</option>
+              {parties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name || p.party_name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <tbody>
-            {items.map((row, index) => (
-              <tr key={index} className="align-top border-t">
-                <td className="p-2 min-w-[140px]">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+              Delivery Date
+            </label>
+            <input
+              type="date"
+              value={deliveryDate}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+              className="w-full p-2.5 text-sm bg-white border border-slate-300 rounded-lg font-medium text-slate-800"
+              required
+            />
+          </div>
+        </div>
+
+        {/* Notification Banner for Auto-loaded Favourite Colours */}
+        {autoColourSource && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-2.5 rounded-lg font-medium shadow-sm">
+            <Star className="w-4 h-4 fill-amber-500 text-amber-500 shrink-0" />
+            <span>{autoColourSource}</span>
+          </div>
+        )}
+
+        {/* Punching Controls */}
+        <div className="bg-blue-50/50 border border-blue-200 p-5 rounded-xl space-y-4 shadow-sm">
+          <div className="flex items-center gap-2 border-b border-blue-200/60 pb-3">
+            <Package className="w-5 h-5 text-blue-600" />
+            <h4 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+              Add Items To Order
+            </h4>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+              1. Choose Design
+            </label>
+            <select
+              value={selectedDesignId}
+              onChange={(e) =>
+                setSelectedDesignId(e.target.value ? Number(e.target.value) : "")
+              }
+              className="w-full p-2.5 text-sm bg-white border border-slate-300 rounded-lg font-bold text-slate-800"
+            >
+              <option value="">Select Design...</option>
+              {designs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.design_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedDesignId && (
+            <div className="space-y-4 pt-2">
+              {/* Quantity & Unit Selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 border border-slate-200 rounded-lg">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Quantity
+                  </label>
+                  <input
+                    type="number"
+                    value={totalQty}
+                    onChange={(e) => setTotalQty(e.target.value)}
+                    className="w-full p-2 text-sm border border-slate-300 rounded font-bold text-slate-800"
+                    placeholder="e.g. 5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Unit
+                  </label>
                   <select
-                    className="border w-full p-2 rounded"
-                    value={row.design_id}
-                    onChange={(e) => updateRow(index, "design_id", e.target.value)}
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value as "Pcs" | "Carton")}
+                    className="w-full p-2 text-sm border border-slate-300 rounded bg-slate-50 font-bold text-blue-800"
                   >
-                    <option value="">Select</option>
-                    {designs.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.design_name}
+                    {UNIT_OPTIONS.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
                       </option>
                     ))}
                   </select>
-                </td>
+                </div>
+              </div>
 
-                <td className="p-2 text-center min-w-[90px]">
+              {/* Colour Checkbox Selection */}
+              <div className="bg-white border border-slate-200 p-4 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-800 uppercase flex items-center gap-1.5">
+                    <ListChecks className="w-4 h-4 text-blue-600" />
+                    2. Select Colours ({selectedColourIds.length} Selected)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllFilteredColours}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded text-slate-700"
+                  >
+                    Toggle Visible Colours
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
                   <input
-                    type="checkbox"
-                    className="w-5 h-5 cursor-pointer mt-2"
-                    checked={row.is_mix_colour}
-                    onChange={(e) => updateRow(index, "is_mix_colour", e.target.checked)}
+                    type="text"
+                    placeholder="Search colour..."
+                    value={colourSearch}
+                    onChange={(e) => setColourSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded"
                   />
-                </td>
+                </div>
 
-                <td className="p-2 min-w-[200px]">
-                  {!row.is_mix_colour ? (
+                <div className="max-h-52 overflow-y-auto border border-slate-200 rounded divide-y divide-slate-100 p-2">
+                  {filteredColours.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {filteredColours.map((c) => {
+                        const isChecked = selectedColourIds.includes(c.id);
+                        return (
+                          <label
+                            key={c.id}
+                            className={`flex items-center gap-2 p-2 rounded border cursor-pointer transition-colors text-xs font-bold uppercase ${
+                              isChecked
+                                ? "bg-blue-50 border-blue-300 text-blue-900"
+                                : "bg-white border-slate-200 hover:bg-slate-50 text-slate-700"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => handleToggleColourSelect(c.id)}
+                              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                            />
+                            <span className="truncate">{c.colour_name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      No colours found.
+                    </div>
+                  )}
+                </div>
+
+                {/* Add Actions */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleAddAsCombinedMixItem}
+                    disabled={selectedColourIds.length === 0}
+                    className="py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Add 1 Combined Line ({totalQty} {unit} Total)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleAddAsSeparateLines}
+                    disabled={selectedColourIds.length === 0}
+                    className="py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded border border-slate-300 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Layers className="w-4 h-4 text-slate-500" /> Add {selectedColourIds.length} Lines ({totalQty} {unit} Each)
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Added Order Line Items Table */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+            <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wider">
+              Current Order Line Items ({formItems.length})
+            </h4>
+          </div>
+
+          {formItems.length > 0 ? (
+            <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
+              {formItems.map((item, index) => (
+                <div
+                  key={index}
+                  className="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="font-extrabold text-xs text-slate-400 mt-0.5">#{index + 1}</span>
+                    <div>
+                      <div className="font-bold text-xs text-slate-900">
+                        Design: {item.design_name}
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        Colour: <span className="font-bold text-slate-800">{item.colour_name}</span>
+                      </div>
+                      {item.remarks && (
+                        <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded mt-1 font-medium">
+                          {item.remarks}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0">
                     <select
-                      className="border w-full p-2 rounded"
-                      value={row.colour_id}
-                      onChange={(e) => updateRow(index, "colour_id", e.target.value)}
+                      value={item.unit}
+                      onChange={(e) => {
+                        const newUnit = e.target.value as "Pcs" | "Carton";
+                        setFormItems((prev) =>
+                          prev.map((fItem, fIdx) =>
+                            fIdx === index ? { ...fItem, unit: newUnit } : fItem
+                          )
+                        );
+                      }}
+                      className="p-1 text-xs font-bold border border-slate-300 rounded bg-slate-50 text-slate-700"
                     >
-                      <option value="">Select</option>
-                      {colours.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.colour_name}
+                      {UNIT_OPTIONS.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
                         </option>
                       ))}
                     </select>
-                  ) : (
-                    renderMixColourContent(row, index)
-                  )}
-                </td>
 
-                <td className="p-2 min-w-[90px]">
-                  <input
-                    type="number"
-                    min="1"
-                    className="border w-full p-2 rounded"
-                    value={row.quantity}
-                    onChange={(e) => updateRow(index, "quantity", e.target.value)}
-                  />
-                </td>
+                    <span className="font-extrabold text-sm text-blue-700 bg-blue-50 px-3 py-1 rounded border border-blue-100">
+                      {item.quantity} {item.unit}
+                    </span>
 
-                <td className="p-2 min-w-[110px]">
-                  <select
-                    className="border w-full p-2 rounded"
-                    value={row.unit}
-                    onChange={(e) => updateRow(index, "unit", e.target.value)}
-                  >
-                    <option>Pieces</option>
-                    <option>Parcel</option>
-                  </select>
-                </td>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFormItem(index)}
+                      className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-8 border border-dashed border-slate-300 rounded-lg text-center text-xs text-slate-400">
+              No items added yet. Select a party, choose a design, and click an add button above.
+            </div>
+          )}
+        </div>
 
-                <td className="p-2 text-center text-slate-500 min-w-[120px]">Assign Later</td>
-
-                <td className="p-2 min-w-[150px]">
-                  <input
-                    className="border w-full p-2 rounded"
-                    value={row.remarks}
-                    onChange={(e) => updateRow(index, "remarks", e.target.value)}
-                  />
-                </td>
-
-                <td className="p-2 text-center">
-                  <button
-                    type="button"
-                    onClick={() => removeRow(index)}
-                    className="text-red-500 hover:text-red-700 font-bold p-1 rounded hover:bg-red-50 cursor-pointer"
-                    title="Delete Row"
-                  >
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 5. Add Row Button */}
-      <button
-        onClick={addRow}
-        className="mt-6 w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-semibold transition cursor-pointer"
-      >
-        + Add Item
-      </button>
+        {/* Save Order Action */}
+        <div className="flex items-center justify-end gap-3">
+          <button
+            type="submit"
+            disabled={saving || formItems.length === 0}
+            className="inline-flex items-center px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition-colors shadow-sm"
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4 mr-2" />
+            )}
+            Save Order
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
