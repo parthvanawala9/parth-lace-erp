@@ -100,10 +100,11 @@ export default function Dispatch() {
           planned_date,
           status,
           order_items (
-            id,
-            quantity,
-            unit,
-            remarks,
+  id,
+  quantity,
+  unit,
+  parcel_pcs,
+  remarks,
             orders ( id, order_no, delivery_date, parties ( id, name ) ),
             designs ( id, design_name ),
             colours ( id, colour_name )
@@ -887,18 +888,31 @@ async function handlePartialDispatch() {
 
         <div>
           <label className="block text-sm font-medium mb-1">
-            Dispatch Quantity
-          </label>
+  No. of Parcels
+</label>
+
+<p className="text-xs text-blue-600 font-semibold mb-2">
+  Parcel Size: {selectedGroup.jobs[0]?.order_items?.parcel_pcs || 420} PCS
+</p>
 
           <input
             type="number"
             value={partialQty}
             onChange={(e) => setPartialQty(e.target.value)}
             className="w-full border rounded-lg px-3 py-2"
-            placeholder="Enter quantity"
+            placeholder="Enter number of parcels"
           />
         </div>
+<div className="bg-green-50 border border-green-200 rounded-lg p-3">
+  <p className="text-xs text-slate-500">
+    Total Dispatch
+  </p>
 
+  <p className="text-2xl font-bold text-green-700">
+    {(Number(partialQty || 0) *
+      (selectedGroup.jobs[0]?.order_items?.parcel_pcs || 420))} PCS
+  </p>
+</div>
         <div className="flex justify-end gap-2 pt-3">
           <button
             onClick={() => setShowPartialModal(false)}
