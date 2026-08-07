@@ -427,13 +427,14 @@ export default function Orders() {
       if (createOrderErr) throw createOrderErr;
 
       const itemsToInsert = formItems.map((item) => ({
-        order_id: newOrder.id,
-        design_id: item.design_id,
-        colour_id: item.colour_id,
-        quantity: item.quantity,
-        unit: item.unit,
-        remarks: item.remarks || "",
-      }));
+  order_id: newOrder.id,
+  design_id: item.design_id,
+  colour_id: item.colour_id,
+  quantity: item.quantity,
+  unit: item.unit,
+  parcel_pcs: item.parcel_pcs,
+  remarks: item.remarks || "",
+}));
 
       const { error: itemsErr } = await supabase.from("order_items").insert(itemsToInsert);
       if (itemsErr) throw itemsErr;
