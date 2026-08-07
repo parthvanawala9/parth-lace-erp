@@ -338,7 +338,7 @@ export default function Orders() {
     const qtyNum = Number(totalQty) || 1;
     const colorCount = selectedColourIds.length;
 
-    const totalPieces = unit === "Carton" ? qtyNum * PIECES_PER_CARTON : qtyNum;
+    const totalPieces = unit === "Carton" ? qtyNum * parcelPcs : qtyNum;
     const qtyPerColour = Number((totalPieces / colorCount).toFixed(2));
 
     const newItems: OrderItemForm[] = selectedColourIds.map((cId) => {
