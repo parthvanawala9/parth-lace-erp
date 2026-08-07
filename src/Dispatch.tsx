@@ -107,7 +107,7 @@ export default function Dispatch() {
             colours ( id, colour_name )
           )
         `)
-        .eq("status", "Completed")
+        .in("status", ["Running", "Completed"])
         .order("id", { ascending: false });
 
       if (planErr) console.error("Error fetching completed jobs:", planErr);
