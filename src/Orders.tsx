@@ -41,6 +41,7 @@ type OrderItemForm = {
   quantity: number;
   unit: "Pcs" | "Carton" | "Line";
   remarks: string;
+  parcel_pcs: number;
 };
 
 const UNIT_OPTIONS: ("Pcs" | "Carton" | "Line")[] = ["Pcs", "Carton", "Line"];
@@ -64,6 +65,7 @@ export default function Orders() {
   const [selectedColourIds, setSelectedColourIds] = useState<number[]>([]);
   const [totalQty, setTotalQty] = useState<string>("5");
   const [unit, setUnit] = useState<"Pcs" | "Carton" | "Line">("Carton");
+  const [parcelPcs, setParcelPcs] = useState<number>(420);
   const [autoColourSource, setAutoColourSource] = useState<string>("");
 
   // Quick Add Party Modal State
@@ -343,14 +345,15 @@ export default function Orders() {
       const colourObj = colours.find((c) => c.id === cId);
       const colourName = colourObj?.colour_name || "N/A";
       return {
-        design_id: designObj.id,
-        design_name: designObj.design_name,
-        colour_id: cId,
-        colour_name: colourName,
-        quantity: qtyPerColour,
-        unit: "Pcs",
-        remarks: `Colour: ${colourName} (${qtyPerColour} Pcs from ${qtyNum} ${unit} Mix)`,
-      };
+  design_id: designObj.id,
+  design_name: designObj.design_name,
+  colour_id: cId,
+  colour_name: colourName,
+  quantity: qtyPerColour,
+  unit: "Pcs",
+  remarks: `Colour: ${colourName} (${qtyPerColour} Pcs from ${qtyNum} ${unit} Mix)`,
+  parcel_pcs: parcelPcs,
+};
     });
 
     setFormItems((prev) => [...prev, ...newItems]);
@@ -385,6 +388,7 @@ export default function Orders() {
         quantity: qtyPerLine,
         unit: unit,
         remarks: "",
+        parcel_pcs: parcelPcs,
       };
     });
 
@@ -580,7 +584,7 @@ export default function Orders() {
           {selectedDesignId && (
             <div className="space-y-4 pt-2">
               {/* Quantity & Unit Selection */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 border border-slate-200 rounded-lg">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3.5 border border-slate-200 rounded-lg">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Quantity
@@ -610,7 +614,19 @@ export default function Orders() {
                   </select>
                 </div>
               </div>
+<div>
+  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+    Parcel PCS
+  </label>
 
+  <input
+    type="number"
+    value={parcelPcs}
+    onChange={(e) => setParcelPcs(Number(e.target.value))}
+    className="w-full p-2 text-sm border border-slate-300 rounded font-bold text-slate-800"
+    placeholder="420"
+  />
+</div>
               {/* Colour Checkbox Selection */}
               <div className="bg-white border border-slate-200 p-4 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
