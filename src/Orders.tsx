@@ -43,6 +43,7 @@ type OrderItemForm = {
 };
 
 const UNIT_OPTIONS: ("Pcs" | "Carton")[] = ["Pcs", "Carton"];
+const PIECES_PER_CARTON = 420;
 
 export default function Orders() {
   const [parties, setParties] = useState<Party[]>([]);
@@ -64,7 +65,7 @@ export default function Orders() {
   const [colourSearch, setColourSearch] = useState<string>("");
   const [selectedColourIds, setSelectedColourIds] = useState<number[]>([]);
   const [totalQty, setTotalQty] = useState<string>("5");
-  const [unit, setUnit] = useState<"Pcs" | "Carton">("Pcs");
+  const [unit, setUnit] = useState<"Pcs" | "Carton">("Carton");
   const [autoColourSource, setAutoColourSource] = useState<string>("");
 
   useEffect(() => {
@@ -194,7 +195,7 @@ export default function Orders() {
     setColourSearch("");
     setSelectedColourIds([]);
     setTotalQty("5");
-    setUnit("Pcs");
+    setUnit("Carton");
     setAutoColourSource("");
     fetchLatestOrderNo();
   };
@@ -218,7 +219,7 @@ export default function Orders() {
     }
   };
 
-  // ADD 1 COMBINED MIX LINE
+  // ADD 1 COMBINED MIX ITEM (Converts Cartons to total pieces and divides across selected colours with explicit colour remarks)
   const handleAddAsCombinedMixItem = () => {
     if (!selectedDesignId) {
       alert("Please select a Design first.");
@@ -233,32 +234,30 @@ export default function Orders() {
     const designObj = designs.find((d) => d.id === Number(selectedDesignId));
     if (!designObj) return;
 
-    const selectedColourNames = colours
-      .filter((c) => selectedColourIds.includes(c.id))
-      .map((c) => c.colour_name);
-
-    const mixColourObj =
-      colours.find(
-        (c) =>
-          c.colour_name.toUpperCase() === "MIX" ||
-          c.colour_name.toUpperCase() === "ASSORTED"
-      ) || colours[0];
-
     const qtyNum = Number(totalQty) || 1;
-    const colorCount = selectedColourNames.length;
-    const colorListFormatted = selectedColourNames.join(", ");
+    const colorCount = selectedColourIds.length;
 
-    const newItem: OrderItemForm = {
-      design_id: designObj.id,
-      design_name: designObj.design_name,
-      colour_id: mixColourObj?.id || selectedColourIds[0],
-      colour_name: `MIX (${colorCount} Colours)`,
-      quantity: qtyNum,
-      unit: unit,
-      remarks: `${colorCount} Colours Mixed: ${colorListFormatted}`,
-    };
+    // Calculate total pieces (1 Carton = 420 pieces)
+    const totalPieces = unit === "Carton" ? qtyNum * PIECES_PER_CARTON : qtyNum;
+    
+    // Divide total pieces evenly among the selected colours
+    const qtyPerColour = Number((totalPieces / colorCount).toFixed(2));
 
-    setFormItems((prev) => [...prev, newItem]);
+    const newItems: OrderItemForm[] = selectedColourIds.map((cId) => {
+      const colourObj = colours.find((c) => c.id === cId);
+      const colourName = colourObj?.colour_name || "N/A";
+      return {
+        design_id: designObj.id,
+        design_name: designObj.design_name,
+        colour_id: cId,
+        colour_name: colourName,
+        quantity: qtyPerColour,
+        unit: "Pcs",
+        remarks: `Colour: ${colourName} (${qtyPerColour} Pcs from ${qtyNum} ${unit} Mix)`,
+      };
+    });
+
+    setFormItems((prev) => [...prev, ...newItems]);
     setSelectedColourIds([]);
     setColourSearch("");
   };
