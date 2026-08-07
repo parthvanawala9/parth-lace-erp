@@ -64,15 +64,10 @@ type DispatchRecord = {
   order_items?: OrderItem;
 };
 
-type FormInputs = {
-  dispatch_qty: number | "";
-  remarks: string;
-};
-
 export default function Dispatch() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState<boolean>(true);
-  const [submittingId, setSubmittingId] = useState<number | null>(null);
+  const [submittingGroupKey, setSubmittingGroupKey] = useState<string | null>(null);
 
   // Tab State: "pending" | "history"
   const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
@@ -87,9 +82,6 @@ export default function Dispatch() {
   const [designFilter, setDesignFilter] = useState<string>("ALL");
   const [dateFilter, setDateFilter] = useState<string>("");
 
-  // Per-row input values for dispatch creation
-  const [dispatchInputs, setDispatchInputs] = useState<Record<number, FormInputs>>({});
-
   useEffect(() => {
     loadData();
   }, []);
@@ -97,7 +89,6 @@ export default function Dispatch() {
   async function loadData() {
     setLoading(true);
     try {
-      // 1. Fetch only orders where production is Completed
       const { data: planningData, error: planErr } = await supabase
         .from("production_planning")
         .select(`
@@ -121,7 +112,6 @@ export default function Dispatch() {
 
       if (planErr) console.error("Error fetching completed jobs:", planErr);
 
-      // 2. Fetch existing dispatch logs
       const { data: dispatches, error: dispatchErr } = await supabase
         .from("dispatches")
         .select(`
@@ -222,6 +212,66 @@ export default function Dispatch() {
     });
   }, [completedJobs, searchTerm, partyFilter, designFilter, dateFilter]);
 
+  // Group Pending Items by Party Name and Order Number into Single Rows (Mixing Colors Together)
+  const groupedPendingItems = useMemo(() => {
+    const groups: Record<
+      string,
+      {
+        groupKey: string;
+        partyName: string;
+        orderNo: string;
+        jobs: PlannedJob[];
+        colours: string[];
+        designs: string[];
+        totalOrder: number;
+        totalProduced: number;
+        totalPending: number;
+      }
+    > = {};
+
+    filteredPendingItems.forEach((job) => {
+      const item = job.order_items;
+      const partyName = item?.orders?.parties?.name || "Unknown Party";
+      const orderNo = String(item?.orders?.order_no || "N/A");
+      const groupKey = `${partyName}_${orderNo}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          groupKey,
+          partyName,
+          orderNo,
+          jobs: [],
+          colours: [],
+          designs: [],
+          totalOrder: 0,
+          totalProduced: 0,
+          totalPending: 0,
+        };
+      }
+      groups[groupKey].jobs.push(job);
+
+      const orderQty = item?.quantity || 0;
+      const dispatchedQty = dispatchedQtyByOrderItem.get(item?.id || 0) || 0;
+      const pendingQty = Math.max(0, orderQty - dispatchedQty);
+
+      groups[groupKey].totalOrder += orderQty;
+      groups[groupKey].totalProduced += orderQty;
+      groups[groupKey].totalPending += pendingQty;
+
+      const colName = item?.colours?.colour_name;
+      if (colName && !groups[groupKey].colours.includes(colName)) {
+        groups[groupKey].colours.push(colName);
+      }
+      const desName = item?.designs?.design_name;
+      if (desName && !groups[groupKey].designs.includes(desName)) {
+        groups[groupKey].designs.push(desName);
+      }
+    });
+
+    // Only return groups that still have pending quantity to dispatch (fully dispatched ones move to history)
+    return Object.values(groups).filter((group) => group.totalPending > 0);
+  }, [filteredPendingItems, dispatchedQtyByOrderItem]);
+
   // Filter History Items
   const filteredHistoryItems = useMemo(() => {
     return dispatchLogs.filter((log) => {
@@ -245,107 +295,62 @@ export default function Dispatch() {
     });
   }, [dispatchLogs, searchTerm, partyFilter, designFilter, dateFilter]);
 
-  // Helper to get or initialize input values for a row
-  function getInputs(orderItemId: number, defaultPendingQty: number): FormInputs {
-    if (dispatchInputs[orderItemId]) return dispatchInputs[orderItemId];
-    return {
-      dispatch_qty: defaultPendingQty > 0 ? defaultPendingQty : "",
-      remarks: "",
-    };
-  }
-
-  function handleInputChange<K extends keyof FormInputs>(
-    orderItemId: number,
-    field: K,
-    value: FormInputs[K]
-  ) {
-    setDispatchInputs((prev) => {
-      const existing = prev[orderItemId] || {
-        dispatch_qty: "",
-        remarks: "",
-      };
-      return {
-        ...prev,
-        [orderItemId]: {
-          ...existing,
-          [field]: value,
-        },
-      };
-    });
-  }
-
-  // Handle Dispatch Submission ("Done")
-  async function handleDispatch(job: PlannedJob) {
-    const orderItemId = job.order_item_id;
-    const orderQty = job.order_items?.quantity || 0;
-    const totalDispatchedSoFar = dispatchedQtyByOrderItem.get(orderItemId) || 0;
-    const pendingQty = Math.max(0, orderQty - totalDispatchedSoFar);
-
-    const inputs = getInputs(orderItemId, pendingQty);
-    const dispatchQtyNum = Number(inputs.dispatch_qty);
-
-    if (!dispatchQtyNum || dispatchQtyNum <= 0) {
-      alert("Please enter a valid Dispatch Quantity greater than 0.");
-      return;
-    }
-
-    if (dispatchQtyNum > pendingQty) {
-      alert(`Dispatch Quantity cannot exceed Pending Quantity (${pendingQty}).`);
-      return;
-    }
-
-    const newTotalDispatched = totalDispatchedSoFar + dispatchQtyNum;
-    const newPendingQty = orderQty - newTotalDispatched;
-
-    const dispatchStatus =
-      newPendingQty <= 0 ? "Fully Dispatched" : "Partially Dispatched";
-
+  // Handle Dispatch Submission for an Entire Order Group (Single "Done" Button)
+  async function handleDispatchGroup(group: {
+    groupKey: string;
+    partyName: string;
+    orderNo: string;
+    jobs: PlannedJob[];
+  }) {
     const todayStr = new Date().toISOString().split("T")[0];
+    setSubmittingGroupKey(group.groupKey);
 
-    setSubmittingId(orderItemId);
+    let allSuccessful = true;
 
-    // List of column name variants to attempt insertion with
-    const fieldVariants = ["dispatch_qty", "dispatched_qty", "qty", "quantity"];
-    let lastError: any = null;
-    let success = false;
+    for (const job of group.jobs) {
+      const orderItemId = job.order_item_id;
+      const orderQty = job.order_items?.quantity || 0;
+      const totalDispatchedSoFar = dispatchedQtyByOrderItem.get(orderItemId) || 0;
+      const pendingQty = Math.max(0, orderQty - totalDispatchedSoFar);
 
-    for (const fieldName of fieldVariants) {
-      const payload = {
-        order_item_id: orderItemId,
-        dispatch_date: todayStr,
-        [fieldName]: dispatchQtyNum,
-        remarks: inputs.remarks,
-        status: dispatchStatus,
-      };
+      if (pendingQty <= 0) continue;
 
-      const { error } = await supabase.from("dispatches").insert(payload);
+      const dispatchStatus = "Fully Dispatched";
+      const fieldVariants = ["dispatch_qty", "dispatched_qty", "qty", "quantity"];
+      let success = false;
 
-      if (!error) {
-        success = true;
-        break;
+      for (const fieldName of fieldVariants) {
+        const payload = {
+          order_item_id: orderItemId,
+          dispatch_date: todayStr,
+          [fieldName]: pendingQty,
+          remarks: "Dispatched completely via order action",
+          status: dispatchStatus,
+        };
+
+        const { error } = await supabase.from("dispatches").insert(payload);
+
+        if (!error) {
+          success = true;
+          break;
+        }
+
+        if (!error.message?.includes("column")) {
+          break;
+        }
       }
 
-      lastError = error;
-      if (!error.message?.includes("column")) {
-        break;
+      if (!success) {
+        allSuccessful = false;
       }
     }
 
-    if (!success) {
-      alert("Error saving dispatch: " + (lastError?.message || "Unknown error"));
-      setSubmittingId(null);
-      return;
+    if (!allSuccessful) {
+      alert("Some items encountered errors during dispatch.");
     }
-
-    // Reset form input for this item
-    setDispatchInputs((prev) => {
-      const next = { ...prev };
-      delete next[orderItemId];
-      return next;
-    });
 
     await loadData();
-    setSubmittingId(null);
+    setSubmittingGroupKey(null);
   }
 
   // Handle Printing Dispatch Challan
@@ -531,7 +536,7 @@ export default function Dispatch() {
                 : "bg-slate-100 text-slate-600"
             }`}
           >
-            {filteredPendingItems.length}
+            {groupedPendingItems.length}
           </span>
         </button>
 
@@ -557,10 +562,10 @@ export default function Dispatch() {
         </button>
       </div>
 
-      {/* TAB 1: PENDING DISPATCH TABLE */}
+      {/* TAB 1: PENDING DISPATCH TABLE (ONE SINGLE ROW PER ORDER WITH COLORS COMBINED) */}
       {activeTab === "pending" && (
         <div className="bg-white rounded-b-xl border border-slate-200 shadow-sm overflow-hidden">
-          {filteredPendingItems.length === 0 ? (
+          {groupedPendingItems.length === 0 ? (
             <div className="p-12 text-center flex flex-col items-center justify-center">
               <Truck className="w-12 h-12 text-slate-300 mb-3" />
               <p className="text-base font-semibold text-slate-800">
@@ -575,138 +580,78 @@ export default function Dispatch() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead className="bg-slate-100 text-slate-600 uppercase font-semibold border-b border-slate-200">
                   <tr>
-                    <th className="py-3 px-3">Party Name</th>
-                    <th className="py-3 px-3">Design</th>
-                    <th className="py-3 px-3">Colour</th>
+                    <th className="py-3 px-4">Party Name / Order No</th>
+                    <th className="py-3 px-3">Designs</th>
+                    <th className="py-3 px-3">Colours (Combined)</th>
                     <th className="py-3 px-3 text-right">Order Qty</th>
                     <th className="py-3 px-3 text-right">Produced Qty</th>
                     <th className="py-3 px-3 text-right">Pending Qty</th>
-                    <th className="py-3 px-3 min-w-[120px]">Dispatch Qty</th>
-                    <th className="py-3 px-3 min-w-[180px]">Remarks</th>
-                    <th className="py-3 px-3 text-right min-w-[120px]">Action</th>
+                    <th className="py-3 px-4 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredPendingItems.map((job, idx) => {
-                    const item = job.order_items;
-                    if (!item) return null;
+                  {groupedPendingItems.map((group, idx) => (
+                    <tr
+                      key={group.groupKey}
+                      className={`transition-colors hover:bg-blue-50/40 ${
+                        idx % 2 === 1 ? "bg-slate-50/50" : "bg-white"
+                      }`}
+                    >
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-900 text-sm">
+                          {group.partyName}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                          Order #{group.orderNo}
+                        </div>
+                      </td>
 
-                    const orderItemId = item.id;
-                    const orderQty = item.quantity || 0;
-                    const producedQty = orderQty;
-                    const dispatchedQty = dispatchedQtyByOrderItem.get(orderItemId) || 0;
-                    const pendingQty = Math.max(0, orderQty - dispatchedQty);
+                      <td className="py-3.5 px-3 font-semibold text-slate-800">
+                        {group.designs.join(", ") || "-"}
+                      </td>
 
-                    const currentInputs = getInputs(orderItemId, pendingQty);
+                      <td className="py-3.5 px-3 text-slate-700">
+                        <div className="flex flex-wrap gap-1">
+                          {group.colours.map((c, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200"
+                            >
+                              {c}
+                            </span>
+                          ))}
+                          {group.colours.length === 0 && "-"}
+                        </div>
+                      </td>
 
-                    return (
-                      <tr
-                        key={job.id}
-                        className={`transition-colors hover:bg-blue-50/40 ${
-                          idx % 2 === 1 ? "bg-slate-50/50" : "bg-white"
-                        }`}
-                      >
-                        <td className="py-3 px-3 font-bold text-slate-900">
-                          {item.orders?.parties?.name || "-"}
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            Order #{item.orders?.order_no || "-"}
-                          </div>
-                        </td>
+                      <td className="py-3.5 px-3 font-semibold text-slate-900 text-right">
+                        {group.totalOrder}
+                      </td>
 
-                        <td className="py-3 px-3 font-semibold text-slate-800">
-                          {item.designs?.design_name || "-"}
-                        </td>
+                      <td className="py-3.5 px-3 font-semibold text-emerald-700 text-right">
+                        {group.totalProduced}
+                      </td>
 
-                        <td className="py-3 px-3 text-slate-700">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                            {item.colours?.colour_name || "-"}
-                          </span>
-                        </td>
+                      <td className="py-3.5 px-3 font-bold text-amber-700 text-right">
+                        {group.totalPending}
+                      </td>
 
-                        <td className="py-3 px-3 font-semibold text-slate-900 text-right">
-                          {orderQty} <span className="text-[10px] text-slate-500 font-normal">{item.unit || "Mtr"}</span>
-                        </td>
-
-                        <td className="py-3 px-3 font-semibold text-emerald-700 text-right">
-                          {producedQty} <span className="text-[10px] text-slate-500 font-normal">{item.unit || "Mtr"}</span>
-                        </td>
-
-                        <td className="py-3 px-3 font-bold text-amber-700 text-right">
-                          {pendingQty} <span className="text-[10px] text-slate-500 font-normal">{item.unit || "Mtr"}</span>
-                        </td>
-
-                        {/* Editable Dispatch Qty */}
-                        <td className="py-2 px-2">
-                          <input
-                            type="number"
-                            disabled={pendingQty === 0}
-                            value={currentInputs.dispatch_qty}
-                            onChange={(e) =>
-                              handleInputChange(
-                                orderItemId,
-                                "dispatch_qty",
-                                e.target.value === "" ? "" : Number(e.target.value)
-                              )
-                            }
-                            placeholder="Qty"
-                            className="w-full text-xs font-bold border border-slate-300 rounded px-2 py-1 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 disabled:bg-slate-100"
-                          />
-                        </td>
-
-                        {/* Editable Remarks */}
-                        <td className="py-2 px-2">
-                          <input
-                            type="text"
-                            disabled={pendingQty === 0}
-                            value={currentInputs.remarks}
-                            onChange={(e) =>
-                              handleInputChange(orderItemId, "remarks", e.target.value)
-                            }
-                            placeholder="Notes..."
-                            className="w-full text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:ring-2 focus:ring-blue-500 text-slate-800 disabled:bg-slate-100"
-                          />
-                        </td>
-
-                        <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {pendingQty > 0 ? (
-                              <button
-                                disabled={submittingId === orderItemId}
-                                onClick={() => handleDispatch(job)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1 disabled:opacity-50"
-                              >
-                                {submittingId === orderItemId ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Check className="w-3.5 h-3.5" />
-                                )}
-                                Done
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() =>
-                                  handlePrintChallan({
-                                    party_name: item.orders?.parties?.name || "",
-                                    design_name: item.designs?.design_name || "",
-                                    colour_name: item.colours?.colour_name || "",
-                                    order_no: item.orders?.order_no || "",
-                                    dispatch_qty: orderQty,
-                                    unit: item.unit || "Mtr",
-                                    remarks: currentInputs.remarks,
-                                    dispatch_date: new Date().toISOString().split("T")[0],
-                                  })
-                                }
-                                className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1"
-                              >
-                                <Printer className="w-3.5 h-3.5" />
-                                Challan
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          disabled={submittingGroupKey === group.groupKey}
+                          onClick={() => handleDispatchGroup(group)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 mx-auto"
+                        >
+                          {submittingGroupKey === group.groupKey ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                          Done
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -781,10 +726,7 @@ export default function Dispatch() {
                         </td>
 
                         <td className="py-3 px-3 font-bold text-emerald-700 text-right">
-                          {qty}{" "}
-                          <span className="text-[10px] text-slate-500 font-normal">
-                            {item?.unit || "Mtr"}
-                          </span>
+                          {qty} <span className="text-[10px] text-slate-500 font-normal">{item?.unit || "Mtr"}</span>
                         </td>
 
                         <td className="py-3 px-3 text-slate-500 italic max-w-[200px] truncate">
