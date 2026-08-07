@@ -39,11 +39,11 @@ type OrderItemForm = {
   colour_id: number;
   colour_name: string;
   quantity: number;
-  unit: "Pcs" | "Carton";
+  unit: "Pcs" | "Carton" | "Line";
   remarks: string;
 };
 
-const UNIT_OPTIONS: ("Pcs" | "Carton")[] = ["Pcs", "Carton"];
+const UNIT_OPTIONS: ("Pcs" | "Carton" | "Line")[] = ["Pcs", "Carton", "Line"];
 const PIECES_PER_CARTON = 420;
 
 export default function Orders() {
@@ -63,7 +63,7 @@ export default function Orders() {
   const [colourSearch, setColourSearch] = useState<string>("");
   const [selectedColourIds, setSelectedColourIds] = useState<number[]>([]);
   const [totalQty, setTotalQty] = useState<string>("5");
-  const [unit, setUnit] = useState<"Pcs" | "Carton">("Carton");
+  const [unit, setUnit] = useState<"Pcs" | "Carton" | "Line">("Carton");
   const [autoColourSource, setAutoColourSource] = useState<string>("");
 
   // Quick Add Party Modal State
@@ -75,6 +75,11 @@ export default function Orders() {
   const [isAddDesignOpen, setIsAddDesignOpen] = useState<boolean>(false);
   const [newDesignName, setNewDesignName] = useState<string>("");
   const [creatingDesign, setCreatingDesign] = useState<boolean>(false);
+
+  // Quick Add Colour Modal State
+  const [isAddColourOpen, setIsAddColourOpen] = useState<boolean>(false);
+  const [newColourName, setNewColourName] = useState<string>("");
+  const [creatingColour, setCreatingColour] = useState<boolean>(false);
 
   useEffect(() => {
     loadMasterData();
@@ -197,7 +202,36 @@ export default function Orders() {
     }
   }
 
-  // Auto-catch favourite colours when party is selected
+  // Quick Create New Colour
+  async function handleCreateColour(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newColourName.trim()) return;
+
+    setCreatingColour(true);
+    try {
+      const { data, error } = await supabase
+        .from("colours")
+        .insert({ colour_name: newColourName.trim() })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setColours((prev) => [...prev, data].sort((a, b) => a.colour_name.localeCompare(b.colour_name)));
+        // Automatically select the newly created colour
+        setSelectedColourIds((prev) => [...prev, data.id]);
+        setIsAddColourOpen(false);
+        setNewColourName("");
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to create colour");
+    } finally {
+      setCreatingColour(false);
+    }
+  }
+
+  // Auto-fetch colours from party_program_layout when party is selected
   const handlePartyChange = async (selectedId: number | "") => {
     setPartyId(selectedId);
     setAutoColourSource("");
@@ -210,7 +244,7 @@ export default function Orders() {
     const matchedParty = parties.find((p) => p.id === selectedId);
     let autoColourIds: number[] = [];
 
-    // 1. Try catching colours from party_program_layout
+    // 1. Fetch configured sequence from party_program_layout table
     try {
       const { data: layoutData } = await supabase
         .from("party_program_layout")
@@ -226,23 +260,23 @@ export default function Orders() {
       console.error("Error fetching program layout:", err);
     }
 
-    // 2. Fallback or merge with favourite_colours array from Party Master
-    if (matchedParty?.favourite_colours && matchedParty.favourite_colours.length > 0) {
+    // 2. Fallback to favourite_colours array if program layout is empty
+    if (autoColourIds.length === 0 && matchedParty?.favourite_colours && matchedParty.favourite_colours.length > 0) {
       const favNames = matchedParty.favourite_colours.map((name) =>
-        name.trim().toLowerCase()
+        String(name).trim().toLowerCase()
       );
 
       const matchedIds = colours
         .filter((c) => favNames.includes(c.colour_name.trim().toLowerCase()))
         .map((c) => c.id);
 
-      autoColourIds = Array.from(new Set([...autoColourIds, ...matchedIds]));
+      autoColourIds = Array.from(new Set(matchedIds));
     }
 
     if (autoColourIds.length > 0) {
       setSelectedColourIds(autoColourIds);
       setAutoColourSource(
-        `Auto-loaded ${autoColourIds.length} favourite colour(s) for ${
+        `Auto-loaded ${autoColourIds.length} layout colour(s) for ${
           matchedParty?.name || matchedParty?.party_name || "selected party"
         }`
       );
@@ -273,9 +307,11 @@ export default function Orders() {
 
   const handleSelectAllFilteredColours = () => {
     const filteredIds = filteredColours.map((c) => c.id);
-    const allSelected = filteredIds.every((id) => selectedColourIds.includes(id));
+    if (filteredIds.length === 0) return;
 
-    if (allSelected) {
+    const allVisibleSelected = filteredIds.every((id) => selectedColourIds.includes(id));
+
+    if (allVisibleSelected) {
       setSelectedColourIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
     } else {
       setSelectedColourIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
@@ -434,7 +470,7 @@ export default function Orders() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Order Punching</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Punch Order Lines with Auto Favourite Colours</p>
+            <p className="text-sm text-slate-500 mt-0.5">Punch Order Lines with Party Program Layout Colours</p>
           </div>
         </div>
 
@@ -495,7 +531,7 @@ export default function Orders() {
           </div>
         </div>
 
-        {/* Notification Banner for Auto-loaded Favourite Colours */}
+        {/* Notification Banner for Auto-loaded Program Layout Colours */}
         {autoColourSource && (
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-2.5 rounded-lg font-medium shadow-sm">
             <Star className="w-4 h-4 fill-amber-500 text-amber-500 shrink-0" />
@@ -563,7 +599,7 @@ export default function Orders() {
                   </label>
                   <select
                     value={unit}
-                    onChange={(e) => setUnit(e.target.value as "Pcs" | "Carton")}
+                    onChange={(e) => setUnit(e.target.value as "Pcs" | "Carton" | "Line")}
                     className="w-full p-2 text-sm border border-slate-300 rounded bg-slate-50 font-bold text-blue-800"
                   >
                     {UNIT_OPTIONS.map((u) => (
@@ -582,13 +618,22 @@ export default function Orders() {
                     <ListChecks className="w-4 h-4 text-blue-600" />
                     2. Select Colours ({selectedColourIds.length} Selected)
                   </span>
-                  <button
-                    type="button"
-                    onClick={handleSelectAllFilteredColours}
-                    className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded text-slate-700"
-                  >
-                    Toggle Visible Colours
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddColourOpen(true)}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add New Colour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSelectAllFilteredColours}
+                      className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded text-slate-700"
+                    >
+                      Toggle Visible
+                    </button>
+                  </div>
                 </div>
 
                 <div className="relative">
@@ -695,7 +740,7 @@ export default function Orders() {
                     <select
                       value={item.unit}
                       onChange={(e) => {
-                        const newUnit = e.target.value as "Pcs" | "Carton";
+                        const newUnit = e.target.value as "Pcs" | "Carton" | "Line";
                         setFormItems((prev) =>
                           prev.map((fItem, fIdx) =>
                             fIdx === index ? { ...fItem, unit: newUnit } : fItem
@@ -833,6 +878,51 @@ export default function Orders() {
                 >
                   {creatingDesign && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   Save Design
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK ADD COLOUR MODAL */}
+      {isAddColourOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider">Add New Colour</h3>
+              <button onClick={() => setIsAddColourOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateColour} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Colour Name</label>
+                <input
+                  type="text"
+                  placeholder="Enter Colour Name..."
+                  value={newColourName}
+                  onChange={(e) => setNewColourName(e.target.value)}
+                  className="w-full p-2.5 text-sm border border-slate-300 rounded-lg font-medium focus:ring-2 focus:ring-blue-500"
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddColourOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingColour || !newColourName.trim()}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  {creatingColour && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Save Colour
                 </button>
               </div>
             </form>
