@@ -67,6 +67,32 @@ type PlannedJob = {
   machines?: Machine;
 };
 
+type PartyDesignGroup = {
+  key: string;
+  party_id: number | string;
+  party_name: string;
+  design_id: number | string;
+  design_name: string;
+  items_count: number;
+};
+
+type PlannedBatch = {
+  batchKey: string;
+  machine_id: number;
+  machine_number: string;
+  party_id: number | string;
+  party_name: string;
+  design_id: number | string;
+  design_name: string;
+  status: string;
+  planned_date: string;
+  jobs: PlannedJob[];
+  total_quantity: number;
+  unit: string;
+  colours: string[];
+  order_numbers: string[];
+};
+
 export default function ProductionPlanning() {
   const navigate = useNavigate();
   const [items, setItems] = useState<OrderItem[]>([]);
@@ -87,19 +113,15 @@ export default function ProductionPlanning() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const pageSize = 50;
 
-  // New Design-based Job Modal State
+  // New Party/Design Job Modal State
   const [isAddJobOpen, setIsAddJobOpen] = useState<boolean>(false);
   const [modalMachineId, setModalMachineId] = useState<string>("");
-  const [selectedDesignId, setSelectedDesignId] = useState<string>("");
-  const [designSearchTerm, setDesignSearchTerm] = useState<string>("");
-  const [selectedOrderItemId, setSelectedOrderItemId] = useState<number | null>(null);
+  const [modalPartyFilter, setModalPartyFilter] = useState<string>("ALL");
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string>("");
+  const [groupSearchTerm, setGroupSearchTerm] = useState<string>("");
   const [jobPlannedDate, setJobPlannedDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
-
-  // Fallback inline controls for table mode
-  const [selectedMachine, setSelectedMachine] = useState<Record<number, string>>({});
-  const [plannedDate, setPlannedDate] = useState<Record<number, string>>({});
 
   useEffect(() => {
     loadData();
@@ -119,14 +141,12 @@ export default function ProductionPlanning() {
           quantity,
           unit,
           remarks,
-
           orders(
             id,
             order_no,
             delivery_date,
             parties(id, name)
           ),
-
           designs(id, design_name),
           colours(id, colour_name)
         `);
@@ -195,57 +215,103 @@ export default function ProductionPlanning() {
     }
   }
 
-  // Get Order Items that are NOT yet planned
   const unplannedOrderItems = useMemo(() => {
     const plannedItemIds = new Set(plannedJobs.map((j) => j.order_item_id));
     return items.filter((item) => !plannedItemIds.has(item.id));
   }, [items, plannedJobs]);
 
-  // Unique list of designs present in unplanned orders
-  const uniqueUnplannedDesigns = useMemo(() => {
-    const map = new Map<number, string>();
+  // Unique Party + Design Groups for Unplanned Orders
+  const uniqueUnplannedPartyDesignGroups = useMemo(() => {
+    const map = new Map<string, PartyDesignGroup>();
+
     unplannedOrderItems.forEach((item) => {
-      if (item.designs?.id && item.designs?.design_name) {
-        map.set(item.designs.id, item.designs.design_name);
+      const partyId = item.orders?.parties?.id || "no_party";
+      const partyName = item.orders?.parties?.name || "Unknown Party";
+      const designId = item.designs?.id || "no_design";
+      const designName = item.designs?.design_name || "Unknown Design";
+
+      const key = `${partyId}_${designId}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          party_id: partyId,
+          party_name: partyName,
+          design_id: designId,
+          design_name: designName,
+          items_count: 0,
+        });
       }
+
+      map.get(key)!.items_count += 1;
     });
-    return Array.from(map.entries())
-      .map(([id, design_name]) => ({ id, design_name }))
-      .sort((a, b) => a.design_name.localeCompare(b.design_name));
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.party_name.localeCompare(b.party_name) || a.design_name.localeCompare(b.design_name)
+    );
   }, [unplannedOrderItems]);
 
-  const filteredUnplannedDesigns = useMemo(() => {
-    return uniqueUnplannedDesigns.filter((d) =>
-      d.design_name.toLowerCase().includes(designSearchTerm.toLowerCase())
-    );
-  }, [uniqueUnplannedDesigns, designSearchTerm]);
+  const filteredUnplannedGroups = useMemo(() => {
+    return uniqueUnplannedPartyDesignGroups.filter((g) => {
+      const matchesParty = modalPartyFilter === "ALL" || String(g.party_id) === modalPartyFilter;
+      const term = groupSearchTerm.toLowerCase();
+      const matchesSearch =
+        g.party_name.toLowerCase().includes(term) ||
+        g.design_name.toLowerCase().includes(term);
 
-  // Pending orders for the currently selected design in Modal
-  const pendingOrdersForSelectedDesign = useMemo(() => {
-    if (!selectedDesignId) return [];
+      return matchesParty && matchesSearch;
+    });
+  }, [uniqueUnplannedPartyDesignGroups, modalPartyFilter, groupSearchTerm]);
+
+  const itemsForSelectedGroup = useMemo(() => {
+    if (!selectedGroupKey) return [];
+    const group = uniqueUnplannedPartyDesignGroups.find((g) => g.key === selectedGroupKey);
+    if (!group) return [];
+
     return unplannedOrderItems.filter(
-      (item) => String(item.designs?.id) === selectedDesignId
+      (item) =>
+        String(item.orders?.parties?.id || "no_party") === String(group.party_id) &&
+        String(item.designs?.id || "no_design") === String(group.design_id)
     );
-  }, [unplannedOrderItems, selectedDesignId]);
+  }, [unplannedOrderItems, selectedGroupKey, uniqueUnplannedPartyDesignGroups]);
 
-  // Action: Assign machine via Modal or Table
-  async function assignMachineJob(itemId: number, mId: string, pDate: string) {
+  // Assign ALL items for a specific Party + Design as a single batch job
+  async function assignPartyDesignJob(groupKey: string, mId: string, pDate: string) {
     if (!mId) {
       alert("Please select a Machine.");
       return;
     }
-
     if (!pDate) {
       alert("Please select a Planned Date.");
       return;
     }
+    if (!groupKey) {
+      alert("Please select a Party & Design.");
+      return;
+    }
 
-    const { error } = await supabase.from("production_planning").insert({
-      order_item_id: itemId,
+    const group = uniqueUnplannedPartyDesignGroups.find((g) => g.key === groupKey);
+    if (!group) return;
+
+    const itemsToPlan = unplannedOrderItems.filter(
+      (item) =>
+        String(item.orders?.parties?.id || "no_party") === String(group.party_id) &&
+        String(item.designs?.id || "no_design") === String(group.design_id)
+    );
+
+    if (itemsToPlan.length === 0) {
+      alert("No unplanned items found for this party and design.");
+      return;
+    }
+
+    const inserts = itemsToPlan.map((item) => ({
+      order_item_id: item.id,
       machine_id: Number(mId),
       planned_date: pDate,
       status: "Planned",
-    });
+    }));
+
+    const { error } = await supabase.from("production_planning").insert(inserts);
 
     if (error) {
       alert(error.message);
@@ -253,20 +319,18 @@ export default function ProductionPlanning() {
     }
 
     setIsAddJobOpen(false);
-    setSelectedDesignId("");
-    setSelectedOrderItemId(null);
-    setDesignSearchTerm("");
-
+    setSelectedGroupKey("");
+    setGroupSearchTerm("");
     loadData();
   }
 
-  async function startProduction(job: PlannedJob) {
-    const designName = job.order_items?.designs?.design_name || "";
+  async function startProductionBatch(batch: PlannedBatch) {
+    const jobIds = batch.jobs.map((j) => j.id);
 
     const { error: planError } = await supabase
       .from("production_planning")
       .update({ status: "Running" })
-      .eq("id", job.id);
+      .in("id", jobIds);
 
     if (planError) {
       alert(planError.message);
@@ -277,9 +341,9 @@ export default function ProductionPlanning() {
       .from("machines")
       .update({
         status: "Running",
-        current_design: designName,
+        current_design: batch.design_name,
       })
-      .eq("id", job.machine_id);
+      .eq("id", batch.machine_id);
 
     if (machineError) {
       alert(machineError.message);
@@ -289,11 +353,13 @@ export default function ProductionPlanning() {
     loadData();
   }
 
-  async function completeProduction(job: PlannedJob) {
+  async function completeProductionBatch(batch: PlannedBatch) {
+    const jobIds = batch.jobs.map((j) => j.id);
+
     const { error: planError } = await supabase
       .from("production_planning")
       .update({ status: "Completed" })
-      .eq("id", job.id);
+      .in("id", jobIds);
 
     if (planError) {
       alert(planError.message);
@@ -306,7 +372,7 @@ export default function ProductionPlanning() {
         status: "Idle",
         current_design: null,
       })
-      .eq("id", job.machine_id);
+      .eq("id", batch.machine_id);
 
     if (machineError) {
       alert(machineError.message);
@@ -316,106 +382,55 @@ export default function ProductionPlanning() {
     loadData();
   }
 
-  async function handlePrintProgram(job: PlannedJob) {
-    const partyId = job.order_items?.orders?.parties?.id;
-    const designId = job.order_items?.designs?.id;
+  async function handlePrintProgram(batchOrJob: any) {
+    const job = batchOrJob.jobs ? batchOrJob.jobs[0] : batchOrJob;
+    const partyName = batchOrJob.party_name || job?.order_items?.orders?.parties?.name || "";
+    const partyId = batchOrJob.party_id || job?.order_items?.orders?.parties?.id;
+    const designName = batchOrJob.design_name || job?.order_items?.designs?.design_name || "";
 
-    const colourMap = new Map<number, string>();
+    const colourMap = new Map<string, { id?: number; name: string }>();
 
-    if (partyId) {
-      // 1. Query party_program_layout directly without foreign-key join
-      const { data: layoutData, error: layoutError } = await supabase
-        .from("party_program_layout")
-        .select("colour_id, order1, order2, order3")
-        .eq("party_id", partyId);
-
-      // Debug logs: Party Program Layout
-      console.log("Party ID:", partyId);
-      console.log("Party Program Layout:", layoutData);
-      console.log("Layout Error:", layoutError);
-
-      const colourIdsSet = new Set<number>();
-
-      if (!layoutError && layoutData) {
-        layoutData.forEach((row: any) => {
-          if (row.colour_id) {
-            colourIdsSet.add(row.colour_id);
-          }
-        });
-      }
-
-      // 2. Query extra non-null colour_ids from order_items if available
-      if (designId) {
-        const { data: extraItems } = await supabase
-          .from("order_items")
-          .select("colour_id, orders!inner(party_id)")
-          .eq("orders.party_id", partyId)
-          .eq("design_id", designId)
-          .not("colour_id", "is", null);
-
-        if (extraItems) {
-          extraItems.forEach((item: any) => {
-            if (item.colour_id) {
-              colourIdsSet.add(item.colour_id);
-            }
-          });
+    // 1. Collect colours strictly from the batch's assigned colours array
+    if (batchOrJob.colours && Array.isArray(batchOrJob.colours)) {
+      batchOrJob.colours.forEach((cName: string) => {
+        if (cName) {
+          colourMap.set(cName.trim().toLowerCase(), { name: cName.trim() });
         }
-      }
-
-      // Include job's own colour_id as potential fallback ID
-      if (job.order_items?.colours?.id) {
-        colourIdsSet.add(job.order_items.colours.id);
-      }
-
-      const uniqueColourIds = Array.from(colourIdsSet);
-
-      // 3. Query colours table separately using .in("id", colourIds)
-      if (uniqueColourIds.length > 0) {
-        const { data: colourRows, error: colourError } = await supabase
-          .from("colours")
-          .select("id, colour_name")
-          .in("id", uniqueColourIds);
-
-        // Debug logs: Colours
-        console.log("Colour IDs:", uniqueColourIds);
-        console.log("Colour Rows:", colourRows);
-        console.log("Colour Error:", colourError);
-
-        if (!colourError && colourRows) {
-          colourRows.forEach((c: any) => {
-            if (c.id && c.colour_name) {
-              colourMap.set(c.id, c.colour_name);
-            }
-          });
-        }
-      }
+      });
     }
 
-    // 4. Build final items list in JavaScript
-    const itemsList: Array<{ colour_id?: number; colour: string }> = Array.from(
-      colourMap.entries()
-    ).map(([colour_id, colour]) => ({
-      colour_id,
-      colour,
-    }));
+    // 2. Fallback to individual jobs inside the batch if batch.colours is empty
+    if (colourMap.size === 0 && batchOrJob.jobs) {
+      batchOrJob.jobs.forEach((j: any) => {
+        const cName = j.order_items?.colours?.colour_name;
+        if (cName) {
+          colourMap.set(cName.trim().toLowerCase(), {
+            id: j.order_items?.colours?.id,
+            name: cName.trim(),
+          });
+        }
+      });
+    }
 
-    const machine = job.machines?.machine_number || "";
-    const party = job.order_items?.orders?.parties?.name || "";
-    const party_id = job.order_items?.orders?.parties?.id || null;
-    const design = job.order_items?.designs?.design_name || "";
-    const date = job.planned_date || "";
+    // 3. Ultimate fallback for a single standalone job item
+    if (colourMap.size === 0 && job?.order_items?.colours?.colour_name) {
+      const cName = job.order_items.colours.colour_name.trim();
+      colourMap.set(cName.toLowerCase(), {
+        id: job.order_items.colours.id,
+        name: cName,
+      });
+    }
 
-    // Debug log: Final Items sent to Print
-    console.log("Items sent to Print:", itemsList);
+    const extractedColours = Array.from(colourMap.values()).map((c) => c.name);
 
     navigate("/print-machine-program", {
       state: {
-        machine,
-        party,
-        party_id,
-        design,
-        date,
-        items: itemsList,
+        machine: batchOrJob.machine_number || job?.machines?.machine_number || "",
+        party: partyName,
+        party_id: partyId || null,
+        design: designName,
+        date: batchOrJob.planned_date || job?.planned_date || "",
+        colours: extractedColours, // Pass ONLY the specific running colours
       },
     });
   }
@@ -435,9 +450,9 @@ export default function ProductionPlanning() {
   function openAddJobModal(mId?: number) {
     if (mId) setModalMachineId(String(mId));
     else if (machines.length > 0) setModalMachineId(String(machines[0].id));
-    setSelectedDesignId("");
-    setSelectedOrderItemId(null);
-    setDesignSearchTerm("");
+    setSelectedGroupKey("");
+    setGroupSearchTerm("");
+    setModalPartyFilter("ALL");
     setIsAddJobOpen(true);
   }
 
@@ -491,8 +506,9 @@ export default function ProductionPlanning() {
     });
   }, [unplannedOrderItems, searchTerm, partyFilter]);
 
-  const filterJobsByStatus = (targetStatus: string) => {
-    return plannedJobs.filter((job) => {
+  // Group planned jobs by Machine + Status + Planned Date + Party ID + Design ID
+  const getBatchesForStatus = (targetStatus: string): PlannedBatch[] => {
+    const filtered = plannedJobs.filter((job) => {
       if (job.status !== targetStatus) return false;
 
       const orderNo = String(job.order_items?.orders?.order_no || "");
@@ -516,26 +532,72 @@ export default function ProductionPlanning() {
 
       return matchesSearch && matchesParty && matchesMachine && matchesDate;
     });
+
+    const map = new Map<string, PlannedBatch>();
+    filtered.forEach((job) => {
+      const partyId = job.order_items?.orders?.parties?.id || "no_party";
+      const partyName = job.order_items?.orders?.parties?.name || "Unknown Party";
+      const designId = job.order_items?.designs?.id || (job.order_items as any)?.design_id || "no_design";
+      const designName = job.order_items?.designs?.design_name || "Unknown Design";
+
+      // Group key strictly includes partyId
+      const batchKey = `${job.machine_id}_${job.status}_${job.planned_date}_${partyId}_${designId}`;
+
+      if (!map.has(batchKey)) {
+        map.set(batchKey, {
+          batchKey,
+          machine_id: job.machine_id,
+          machine_number: job.machines?.machine_number || "",
+          party_id: partyId,
+          party_name: partyName,
+          design_id: designId,
+          design_name: designName,
+          status: job.status,
+          planned_date: job.planned_date,
+          jobs: [],
+          total_quantity: 0,
+          unit: job.order_items?.unit || "Mtr",
+          colours: [],
+          order_numbers: [],
+        });
+      }
+
+      const batch = map.get(batchKey)!;
+      batch.jobs.push(job);
+      batch.total_quantity += Number(job.order_items?.quantity || 0);
+
+      const cName = job.order_items?.colours?.colour_name;
+      if (cName && !batch.colours.includes(cName)) {
+        batch.colours.push(cName);
+      }
+
+      const orderNo = String(job.order_items?.orders?.order_no || "");
+      if (orderNo && !batch.order_numbers.includes(orderNo)) {
+        batch.order_numbers.push(orderNo);
+      }
+    });
+
+    return Array.from(map.values());
   };
 
-  const filteredPlanned = useMemo(() => filterJobsByStatus("Planned"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
-  const filteredRunning = useMemo(() => filterJobsByStatus("Running"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
-  const filteredCompleted = useMemo(() => filterJobsByStatus("Completed"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
+  const plannedBatches = useMemo(() => getBatchesForStatus("Planned"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
+  const runningBatches = useMemo(() => getBatchesForStatus("Running"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
+  const completedBatches = useMemo(() => getBatchesForStatus("Completed"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
 
   const activeDataset = useMemo(() => {
     switch (activeTab) {
       case "unplanned":
         return filteredUnplanned;
       case "planned":
-        return filteredPlanned;
+        return plannedBatches;
       case "running":
-        return filteredRunning;
+        return runningBatches;
       case "completed":
-        return filteredCompleted;
+        return completedBatches;
       default:
         return [];
     }
-  }, [activeTab, filteredUnplanned, filteredPlanned, filteredRunning, filteredCompleted]);
+  }, [activeTab, filteredUnplanned, plannedBatches, runningBatches, completedBatches]);
 
   const totalRows = activeDataset.length;
   const totalPages = Math.ceil(totalRows / pageSize) || 1;
@@ -561,16 +623,9 @@ export default function ProductionPlanning() {
         </span>
       );
     }
-    if (status === "Idle") {
-      return (
-        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-          Idle
-        </span>
-      );
-    }
     return (
       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
-        {status || "Unplanned"}
+        {status || "Planned"}
       </span>
     );
   };
@@ -586,7 +641,6 @@ export default function ProductionPlanning() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Header Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-blue-50 rounded-xl border border-blue-100">
@@ -595,7 +649,7 @@ export default function ProductionPlanning() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Lace Factory Production Planning</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Design-Centric Scheduling, Machine Allocation & Queue Management
+              Party & Design Scheduling, Machine Allocation & Queue Management
             </p>
           </div>
         </div>
@@ -606,7 +660,7 @@ export default function ProductionPlanning() {
             className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4 mr-1.5" />
-            Add Job (By Design)
+            Add Job (By Party & Design)
           </button>
           <button
             onClick={handleSaveLayout}
@@ -625,7 +679,6 @@ export default function ProductionPlanning() {
         </div>
       </div>
 
-      {/* Top Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
@@ -668,7 +721,6 @@ export default function ProductionPlanning() {
         </div>
       </div>
 
-      {/* Filter Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
         <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
           <div className="relative min-w-[180px]">
@@ -724,26 +776,8 @@ export default function ProductionPlanning() {
             />
           </div>
         </div>
-
-        {(searchTerm || partyFilter !== "ALL" || machineFilter !== "ALL" || dateFilter) && (
-          <div className="flex justify-between items-center text-xs text-slate-500 pt-1 border-t border-slate-100">
-            <span>Filters active</span>
-            <button
-              onClick={() => {
-                setSearchTerm("");
-                setPartyFilter("ALL");
-                setMachineFilter("ALL");
-                setDateFilter("");
-              }}
-              className="text-blue-600 hover:underline font-semibold"
-            >
-              Clear Filters
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Tabs Bar */}
       <div className="border-b border-slate-200 bg-white rounded-t-xl px-4 pt-3 shadow-sm flex flex-wrap gap-2">
         <button
           onClick={() => setActiveTab("board")}
@@ -766,11 +800,7 @@ export default function ProductionPlanning() {
           }`}
         >
           <span>Unplanned Orders</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              activeTab === "unplanned" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-600"
-            }`}
-          >
+          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
             {filteredUnplanned.length}
           </span>
         </button>
@@ -784,12 +814,8 @@ export default function ProductionPlanning() {
           }`}
         >
           <span>Planned Jobs</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              activeTab === "planned" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {filteredPlanned.length}
+          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
+            {plannedBatches.length}
           </span>
         </button>
 
@@ -802,12 +828,8 @@ export default function ProductionPlanning() {
           }`}
         >
           <span>Running Jobs</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              activeTab === "running" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {filteredRunning.length}
+          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
+            {runningBatches.length}
           </span>
         </button>
 
@@ -820,28 +842,19 @@ export default function ProductionPlanning() {
           }`}
         >
           <span>Completed Jobs</span>
-          <span
-            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              activeTab === "completed" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {filteredCompleted.length}
+          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
+            {completedBatches.length}
           </span>
         </button>
       </div>
 
-      {/* VIEW 1: MACHINE QUEUES BOARD */}
       {activeTab === "board" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {machines
             .filter((m) => machineFilter === "ALL" || String(m.id) === machineFilter)
             .map((machine) => {
-              const runningJob = plannedJobs.find(
-                (j) => j.machine_id === machine.id && j.status === "Running"
-              );
-              const queuedJobs = plannedJobs.filter(
-                (j) => j.machine_id === machine.id && j.status === "Planned"
-              );
+              const runningBatch = runningBatches.find((b) => b.machine_id === machine.id);
+              const queuedBatches = plannedBatches.filter((b) => b.machine_id === machine.id);
 
               return (
                 <div
@@ -852,7 +865,7 @@ export default function ProductionPlanning() {
                     <div>
                       <h3 className="font-bold text-slate-900 text-base">{machine.machine_number}</h3>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Queued Jobs: <span className="font-semibold text-slate-700">{queuedJobs.length}</span>
+                        Queued Batches: <span className="font-semibold text-slate-700">{queuedBatches.length}</span>
                       </p>
                     </div>
                     <button
@@ -865,44 +878,47 @@ export default function ProductionPlanning() {
                   </div>
 
                   <div className="p-4 space-y-4 flex-1">
-                    {/* RUNNING SECTION */}
                     <div>
                       <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
                         Running
                       </div>
 
-                      {runningJob ? (
+                      {runningBatch ? (
                         <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg space-y-2">
                           <div className="flex justify-between items-start">
                             <div>
                               <div className="font-bold text-emerald-950 text-sm">
-                                {runningJob.order_items?.designs?.design_name || "-"}
+                                Party: {runningBatch.party_name}
                               </div>
-                              <div className="text-xs font-medium text-emerald-800">
-                                {runningJob.order_items?.orders?.parties?.name || "-"}
+                              <div className="text-xs font-semibold text-emerald-800">
+                                Design: {runningBatch.design_name}
                               </div>
                             </div>
                             <span className="text-[10px] font-semibold bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded">
-                              {runningJob.order_items?.quantity}{" "}
-                              {runningJob.order_items?.unit || "Mtr"}
+                              {runningBatch.total_quantity} {runningBatch.unit}
                             </span>
                           </div>
 
-                          <div className="text-xs text-emerald-700 flex items-center justify-between">
-                            <span>Colour: {runningJob.order_items?.colours?.colour_name || "-"}</span>
+                          <div className="text-xs text-emerald-700 flex flex-wrap gap-1 items-center">
+                            <span className="font-semibold">Colours:</span>
+                            {runningBatch.colours.map((c, idx) => (
+                              <span key={idx} className="bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded text-[10px]">
+                                {c}
+                              </span>
+                            ))}
                           </div>
 
                           <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-end gap-2">
                             <button
-                              onClick={() => completeProduction(runningJob)}
+                              onClick={() => completeProductionBatch(runningBatch)}
                               className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors shadow-sm inline-flex items-center gap-1"
                             >
                               <CheckCircle2 className="w-3 h-3" />
                               Complete
                             </button>
                             <button
-                              onClick={() => handlePrintProgram(runningJob)}
+                              onClick={() => handlePrintProgram(runningBatch)}
                               className="px-2 py-1 text-xs font-medium bg-white text-emerald-800 border border-emerald-300 rounded hover:bg-emerald-50 transition-colors inline-flex items-center gap-1"
                             >
                               <Printer className="w-3 h-3" />
@@ -917,48 +933,55 @@ export default function ProductionPlanning() {
                       )}
                     </div>
 
-                    {/* QUEUED JOBS SECTION */}
                     <div>
                       <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                        Queue ({queuedJobs.length})
+                        Queue ({queuedBatches.length})
                       </div>
 
-                      {queuedJobs.length > 0 ? (
+                      {queuedBatches.length > 0 ? (
                         <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                          {queuedJobs.map((job) => (
+                          {queuedBatches.map((batch) => (
                             <div
-                              key={job.id}
+                              key={batch.batchKey}
                               className="p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors space-y-1.5"
                             >
                               <div className="flex justify-between items-start">
                                 <div>
-                                  <div className="font-semibold text-slate-900 text-xs">
-                                    {job.order_items?.designs?.design_name || "-"}
+                                  <div className="font-bold text-slate-900 text-xs">
+                                    {batch.party_name}
                                   </div>
-                                  <div className="text-[11px] text-slate-500">
-                                    {job.order_items?.orders?.parties?.name || "-"}
+                                  <div className="text-[11px] font-medium text-blue-700">
+                                    Design: {batch.design_name}
                                   </div>
                                 </div>
                                 <span className="text-[10px] font-medium bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
-                                  {job.order_items?.quantity} {job.order_items?.unit || "Mtr"}
+                                  {batch.total_quantity} {batch.unit}
                                 </span>
                               </div>
 
-                              <div className="flex items-center justify-between text-[11px] text-slate-500">
-                                <span>Clr: {job.order_items?.colours?.colour_name || "-"}</span>
-                                <span>Date: {job.planned_date}</span>
+                              <div className="flex flex-wrap gap-1 text-[11px] text-slate-600">
+                                <span className="font-semibold">Colours:</span>
+                                {batch.colours.map((c, idx) => (
+                                  <span key={idx} className="bg-slate-200 text-slate-800 px-1 py-0.5 rounded text-[10px]">
+                                    {c}
+                                  </span>
+                                ))}
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                                <span>Date: {batch.planned_date}</span>
                               </div>
 
                               <div className="pt-1.5 border-t border-slate-200 flex items-center justify-end gap-1.5">
                                 <button
-                                  onClick={() => startProduction(job)}
+                                  onClick={() => startProductionBatch(batch)}
                                   className="px-2 py-1 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors inline-flex items-center gap-1"
                                 >
                                   <Play className="w-3 h-3" />
                                   Start
                                 </button>
                                 <button
-                                  onClick={() => handlePrintProgram(job)}
+                                  onClick={() => handlePrintProgram(batch)}
                                   className="px-2 py-1 text-[11px] font-medium bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-100 transition-colors inline-flex items-center gap-1"
                                 >
                                   <Printer className="w-3 h-3" />
@@ -970,7 +993,7 @@ export default function ProductionPlanning() {
                         </div>
                       ) : (
                         <div className="p-3 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">
-                          No queued jobs
+                          No queued batches
                         </div>
                       )}
                     </div>
@@ -981,19 +1004,17 @@ export default function ProductionPlanning() {
         </div>
       )}
 
-      {/* TABLE VIEWS (UNPLANNED, PLANNED, RUNNING, COMPLETED) */}
       {activeTab !== "board" && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="py-3 px-4">Order / Party</th>
+                  <th className="py-3 px-4">Party</th>
                   <th className="py-3 px-4">Design</th>
-                  <th className="py-3 px-4">Colour</th>
-                  <th className="py-3 px-4">Quantity</th>
-                  <th className="py-3 px-4">Target Date</th>
-                  {activeTab === "unplanned" && <th className="py-3 px-4">Assign Machine</th>}
+                  <th className="py-3 px-4">{activeTab === "unplanned" ? "Colour" : "Colours Included"}</th>
+                  <th className="py-3 px-4">{activeTab === "unplanned" ? "Quantity" : "Total Quantity"}</th>
+                  <th className="py-3 px-4">Target / Planned Date</th>
                   {activeTab !== "unplanned" && <th className="py-3 px-4">Machine</th>}
                   {activeTab !== "unplanned" && <th className="py-3 px-4">Status</th>}
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -1003,107 +1024,101 @@ export default function ProductionPlanning() {
                 {paginatedRows.length > 0 ? (
                   paginatedRows.map((row: any) => {
                     const isUnplanned = activeTab === "unplanned";
-                    const orderItem = isUnplanned ? row : row.order_items;
 
-                    return (
-                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 font-medium text-slate-900">
-                          <div>Order #{orderItem?.orders?.order_no || "-"}</div>
-                          <div className="text-[11px] text-slate-500">
-                            {orderItem?.orders?.parties?.name || "-"}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 font-semibold text-slate-800">
-                          {orderItem?.designs?.design_name || "-"}
-                        </td>
-                        <td className="py-3 px-4">{orderItem?.colours?.colour_name || "-"}</td>
-                        <td className="py-3 px-4 font-medium">
-                          {orderItem?.quantity} {orderItem?.unit || "Mtr"}
-                        </td>
-                        <td className="py-3 px-4 text-slate-500">
-                          {isUnplanned ? orderItem?.orders?.delivery_date || "-" : row.planned_date || "-"}
-                        </td>
-
-                        {isUnplanned && (
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={selectedMachine[row.id] || ""}
-                                onChange={(e) =>
-                                  setSelectedMachine({ ...selectedMachine, [row.id]: e.target.value })
-                                }
-                                className="px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs text-slate-700"
-                              >
-                                <option value="">Select Machine</option>
-                                {machines.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.machine_number}
-                                  </option>
-                                ))}
-                              </select>
-                              <input
-                                type="date"
-                                value={plannedDate[row.id] || todayStr}
-                                onChange={(e) =>
-                                  setPlannedDate({ ...plannedDate, [row.id]: e.target.value })
-                                }
-                                className="px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs text-slate-700"
-                              />
+                    if (isUnplanned) {
+                      return (
+                        <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-4 font-bold text-slate-900">
+                            <div>{row.orders?.parties?.name || "-"}</div>
+                            <div className="text-[11px] text-slate-500 font-normal">
+                              Order #{row.orders?.order_no || "-"}
                             </div>
                           </td>
-                        )}
-
-                        {!isUnplanned && (
-                          <td className="py-3 px-4 font-semibold text-slate-800">
-                            {row.machines?.machine_number || "-"}
+                          <td className="py-3 px-4 font-semibold text-blue-700">
+                            {row.designs?.design_name || "-"}
                           </td>
-                        )}
-
-                        {!isUnplanned && <td className="py-3 px-4">{renderStatusBadge(row.status)}</td>}
-
-                        <td className="py-3 px-4 text-right">
-                          {isUnplanned ? (
+                          <td className="py-3 px-4">{row.colours?.colour_name || "-"}</td>
+                          <td className="py-3 px-4 font-medium">
+                            {row.quantity} {row.unit || "Mtr"}
+                          </td>
+                          <td className="py-3 px-4 text-slate-500">
+                            {row.orders?.delivery_date || "-"}
+                          </td>
+                          <td className="py-3 px-4 text-right" colSpan={3}>
                             <button
-                              onClick={() =>
-                                assignMachineJob(
-                                  row.id,
-                                  selectedMachine[row.id],
-                                  plannedDate[row.id] || todayStr
-                                )
-                              }
+                              onClick={() => {
+                                openAddJobModal();
+                                const pId = row.orders?.parties?.id || "no_party";
+                                const dId = row.designs?.id || "no_design";
+                                setModalPartyFilter(String(pId));
+                                setSelectedGroupKey(`${pId}_${dId}`);
+                              }}
                               className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-xs transition-colors shadow-sm"
                             >
-                              Plan Job
+                              Plan Batch Job
                             </button>
-                          ) : (
-                            <div className="flex items-center justify-end gap-2">
-                              {row.status === "Planned" && (
-                                <button
-                                  onClick={() => startProduction(row)}
-                                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-xs transition-colors shadow-sm inline-flex items-center gap-1"
-                                >
-                                  <Play className="w-3 h-3" />
-                                  Start
-                                </button>
-                              )}
-                              {row.status === "Running" && (
-                                <button
-                                  onClick={() => completeProduction(row)}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold text-xs transition-colors shadow-sm inline-flex items-center gap-1"
-                                >
-                                  <CheckCircle2 className="w-3 h-3" />
-                                  Complete
-                                </button>
-                              )}
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    // PlannedBatch row
+                    const batch = row as PlannedBatch;
+                    return (
+                      <tr key={batch.batchKey} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 font-bold text-slate-900">
+                          {batch.party_name}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-blue-700">
+                          {batch.design_name}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {batch.colours.map((c, idx) => (
+                              <span key={idx} className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[10px] font-medium border border-slate-200">
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-medium">
+                          {batch.total_quantity} {batch.unit}
+                        </td>
+                        <td className="py-3 px-4 text-slate-500">
+                          {batch.planned_date}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-800">
+                          {batch.machine_number}
+                        </td>
+                        <td className="py-3 px-4">{renderStatusBadge(batch.status)}</td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {batch.status === "Planned" && (
                               <button
-                                onClick={() => handlePrintProgram(row)}
-                                className="px-2.5 py-1 bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-50 font-medium text-xs transition-colors inline-flex items-center gap-1"
+                                onClick={() => startProductionBatch(batch)}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-xs transition-colors shadow-sm inline-flex items-center gap-1"
                               >
-                                <Printer className="w-3 h-3" />
-                                Print
+                                <Play className="w-3 h-3" />
+                                Start
                               </button>
-                            </div>
-                          )}
+                            )}
+                            {batch.status === "Running" && (
+                              <button
+                                onClick={() => completeProductionBatch(batch)}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold text-xs transition-colors shadow-sm inline-flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                Complete
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handlePrintProgram(batch)}
+                              className="px-2.5 py-1 bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-50 font-medium text-xs transition-colors inline-flex items-center gap-1"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Print
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1119,7 +1134,6 @@ export default function ProductionPlanning() {
             </table>
           </div>
 
-          {/* Pagination Controls */}
           <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <div className="text-xs text-slate-500">
               Showing <span className="font-semibold text-slate-700">{paginatedRows.length}</span> of{" "}
@@ -1148,14 +1162,13 @@ export default function ProductionPlanning() {
         </div>
       )}
 
-      {/* DESIGN-CENTRIC ADD JOB MODAL */}
       {isAddJobOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Plus className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-slate-900 text-lg">Add Production Job (By Design)</h3>
+                <h3 className="font-bold text-slate-900 text-lg">Add Job (By Party & Design)</h3>
               </div>
               <button
                 onClick={() => setIsAddJobOpen(false)}
@@ -1166,7 +1179,6 @@ export default function ProductionPlanning() {
             </div>
 
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              {/* Machine & Date Selection */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -1198,90 +1210,87 @@ export default function ProductionPlanning() {
                 </div>
               </div>
 
-              {/* Design Selection */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Select Design
-                </label>
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Select Party & Design
+                  </label>
+
+                  <select
+                    value={modalPartyFilter}
+                    onChange={(e) => setModalPartyFilter(e.target.value)}
+                    className="px-2.5 py-1 text-xs bg-slate-100 border border-slate-300 rounded-md text-slate-700 font-medium"
+                  >
+                    <option value="ALL">All Parties</option>
+                    {uniqueParties.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search available designs..."
-                    value={designSearchTerm}
-                    onChange={(e) => setDesignSearchTerm(e.target.value)}
+                    placeholder="Search by Party or Design..."
+                    value={groupSearchTerm}
+                    onChange={(e) => setGroupSearchTerm(e.target.value)}
                     className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
 
-                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50/50">
-                  {filteredUnplannedDesigns.length > 0 ? (
-                    filteredUnplannedDesigns.map((d) => (
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-slate-50/50">
+                  {filteredUnplannedGroups.length > 0 ? (
+                    filteredUnplannedGroups.map((g) => (
                       <button
-                        key={d.id}
+                        key={g.key}
                         type="button"
-                        onClick={() => {
-                          setSelectedDesignId(String(d.id));
-                          setSelectedOrderItemId(null);
-                        }}
+                        onClick={() => setSelectedGroupKey(g.key)}
                         className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between transition-colors ${
-                          selectedDesignId === String(d.id)
-                            ? "bg-blue-50 text-blue-700 font-bold"
+                          selectedGroupKey === g.key
+                            ? "bg-blue-50 text-blue-800 font-bold border-l-4 border-blue-600"
                             : "hover:bg-slate-100 text-slate-700"
                         }`}
                       >
-                        <span>{d.design_name}</span>
-                        {selectedDesignId === String(d.id) && (
-                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                        )}
+                        <div>
+                          <div className="text-slate-900 font-bold">{g.party_name}</div>
+                          <div className="text-xs text-blue-600 font-semibold">Design: {g.design_name}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-normal text-slate-500 bg-slate-200/80 px-2 py-0.5 rounded-full">
+                            {g.items_count} colours
+                          </span>
+                          {selectedGroupKey === g.key && (
+                            <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          )}
+                        </div>
                       </button>
                     ))
                   ) : (
                     <div className="p-4 text-center text-xs text-slate-400">
-                      No matching unplanned designs found.
+                      No matching unplanned party/design orders found.
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Orders linked to chosen Design */}
-              {selectedDesignId && (
+              {selectedGroupKey && (
                 <div className="space-y-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Select Order Item
+                    Colours & Quantities to be assigned ({itemsForSelectedGroup.length} items):
                   </label>
-                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
-                    {pendingOrdersForSelectedDesign.length > 0 ? (
-                      pendingOrdersForSelectedDesign.map((item) => (
-                        <div
-                          key={item.id}
-                          onClick={() => setSelectedOrderItemId(item.id)}
-                          className={`p-3 text-xs cursor-pointer transition-colors flex items-center justify-between ${
-                            selectedOrderItemId === item.id
-                              ? "bg-blue-50/80 border-l-4 border-blue-600"
-                              : "hover:bg-slate-50"
-                          }`}
-                        >
-                          <div>
-                            <div className="font-bold text-slate-900">
-                              Order #{item.orders?.order_no || "-"} - {item.orders?.parties?.name || "-"}
-                            </div>
-                            <div className="text-slate-500 mt-0.5">
-                              Colour: <span className="font-semibold text-slate-700">{item.colours?.colour_name || "-"}</span> | Target Date: {item.orders?.delivery_date || "-"}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-bold text-slate-900">
-                              {item.quantity} {item.unit || "Mtr"}
-                            </div>
-                          </div>
+                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white p-2 space-y-1.5">
+                    {itemsForSelectedGroup.map((item) => (
+                      <div key={item.id} className="flex justify-between items-center text-xs p-2 bg-slate-50 rounded border border-slate-100">
+                        <div>
+                          <span className="font-bold text-slate-800">Colour: {item.colours?.colour_name || "-"}</span>
+                          <span className="text-slate-500 ml-2">(Order #{item.orders?.order_no})</span>
                         </div>
-                      ))
-                    ) : (
-                      <div className="p-4 text-center text-xs text-slate-400">
-                        No pending orders for this design.
+                        <span className="font-semibold text-slate-900">{item.quantity} {item.unit || "Mtr"}</span>
                       </div>
-                    )}
+                    ))}
                   </div>
                 </div>
               )}
@@ -1297,15 +1306,15 @@ export default function ProductionPlanning() {
               </button>
               <button
                 type="button"
-                disabled={!selectedOrderItemId || !modalMachineId}
+                disabled={!selectedGroupKey || !modalMachineId}
                 onClick={() => {
-                  if (selectedOrderItemId) {
-                    assignMachineJob(selectedOrderItemId, modalMachineId, jobPlannedDate);
+                  if (selectedGroupKey) {
+                    assignPartyDesignJob(selectedGroupKey, modalMachineId, jobPlannedDate);
                   }
                 }}
                 className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition-colors shadow-sm"
               >
-                Assign & Queue Job
+                Queue Batch Job
               </button>
             </div>
           </div>
