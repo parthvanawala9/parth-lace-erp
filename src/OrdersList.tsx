@@ -8,6 +8,7 @@ interface OrderItem {
   colour_name?: string;
   quantity?: number;
   unit?: string;
+  parcel_pcs?: number;
   designs?: {
     design_name?: string;
   } | null;
@@ -92,6 +93,62 @@ export default function OrdersList() {
   const handleView = (order: Order) => {
     setSelectedOrder(order);
     setIsViewModalOpen(true);
+  };
+
+  const getDesignSummaries = (items: OrderItem[]) => {
+    const grouped = new Map<
+      string,
+      {
+        designName: string;
+        totalPieces: number;
+        parcelPcs: number;
+      }
+    >();
+
+    items.forEach((item) => {
+      const designName =
+        item.designs?.design_name ||
+        item.design_name ||
+        'Design';
+
+      const parcelPcs = Number(item.parcel_pcs) || 0;
+      const quantity = Number(item.quantity) || 0;
+      const unit = String(item.unit || '').toLowerCase();
+
+      const itemTotalPieces =
+        unit === 'carton' && parcelPcs > 0
+          ? quantity * parcelPcs
+          : quantity;
+
+      const existing = grouped.get(designName);
+
+      if (existing) {
+        existing.totalPieces += itemTotalPieces;
+        if (parcelPcs > 0) {
+          existing.parcelPcs = parcelPcs;
+        }
+      } else {
+        grouped.set(designName, {
+          designName,
+          totalPieces: itemTotalPieces,
+          parcelPcs,
+        });
+      }
+    });
+
+    return Array.from(grouped.values()).map((item) => {
+      const parcelPcs = item.parcelPcs;
+      const hasParcelPcs = parcelPcs > 0;
+      const cartons = hasParcelPcs ? item.totalPieces / parcelPcs : 0;
+
+      return {
+        ...item,
+        cartons,
+        displayQuantity: hasParcelPcs
+          ? `${cartons} Carton`
+          : `${item.totalPieces} pcs`,
+      };
+    });
   };
 
   const filteredOrders = orders.filter((order) => {
@@ -214,6 +271,7 @@ export default function OrdersList() {
             <div className="block sm:hidden divide-y divide-gray-200 p-4 space-y-4">
               {filteredOrders.map((order) => {
                 const items = order.items || order.order_items || [];
+                const summaries = getDesignSummaries(items);
                 return (
                   <div
                     key={order.id}
@@ -252,30 +310,18 @@ export default function OrdersList() {
                       <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1">
                         Items / Designs
                       </span>
-                      {items.length > 0 ? (
+                      {summaries.length > 0 ? (
                         <div className="space-y-1.5 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
-                          {items.map((item, idx) => {
-                            const dName = item.designs?.design_name || item.design_name || 'Design';
-                            const cName = item.colours?.colour_name || item.colour_name;
-                            return (
-                              <div key={idx} className="text-xs">
-                                <span className="font-semibold text-gray-800">
-                                  {dName}
-                                </span>
-                                {cName && (
-                                  <span className="text-gray-500">
-                                    {' '}
-                                    ({cName})
-                                  </span>
-                                )}
-                                {item.quantity !== undefined && (
-                                  <span className="text-gray-600 font-medium ml-1">
-                                    - {item.quantity} {item.unit || 'pcs'}
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
+                          {summaries.map((summary, idx) => (
+                            <div key={idx} className="text-xs">
+                              <span className="font-semibold text-gray-800">
+                                {summary.designName}
+                              </span>
+                              <span className="text-gray-600 font-medium ml-1">
+                                - {summary.displayQuantity}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       ) : (
                         <span className="text-gray-400 italic text-xs">No items</span>
@@ -319,6 +365,7 @@ export default function OrdersList() {
                 <tbody className="divide-y divide-gray-200 text-sm">
                   {filteredOrders.map((order) => {
                     const items = order.items || order.order_items || [];
+                    const summaries = getDesignSummaries(items);
                     return (
                       <tr key={order.id} className="hover:bg-gray-50">
                         <td className="py-3 px-4 font-medium text-gray-900">
@@ -328,30 +375,18 @@ export default function OrdersList() {
                           {order.party?.name ?? order.party_name ?? 'N/A'}
                         </td>
                         <td className="py-3 px-4 text-gray-600">
-                          {items.length > 0 ? (
+                          {summaries.length > 0 ? (
                             <div className="space-y-1">
-                              {items.map((item, idx) => {
-                                const dName = item.designs?.design_name || item.design_name || 'Design';
-                                const cName = item.colours?.colour_name || item.colour_name;
-                                return (
-                                  <div key={idx} className="text-xs">
-                                    <span className="font-semibold text-gray-800">
-                                      {dName}
-                                    </span>
-                                    {cName && (
-                                      <span className="text-gray-500">
-                                        {' '}
-                                        ({cName})
-                                      </span>
-                                    )}
-                                    {item.quantity !== undefined && (
-                                      <span className="text-gray-600 font-medium ml-1">
-                                        - {item.quantity} {item.unit || 'pcs'}
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                              {summaries.map((summary, idx) => (
+                                <div key={idx} className="text-xs">
+                                  <span className="font-semibold text-gray-800">
+                                    {summary.designName}
+                                  </span>
+                                  <span className="text-gray-600 font-medium ml-1">
+                                    - {summary.displayQuantity}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
                           ) : (
                             <span className="text-gray-400 italic">No items</span>
