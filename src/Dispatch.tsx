@@ -15,6 +15,7 @@ import {
   History,
   Check,
   FileText,
+  Eye,
 } from "lucide-react";
 
 type OrderItem = {
@@ -83,7 +84,9 @@ export default function Dispatch() {
   const [designFilter, setDesignFilter] = useState<string>("ALL");
   const [dateFilter, setDateFilter] = useState<string>("");
   const [showPartialModal, setShowPartialModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<any>(null);
+  const [viewGroup, setViewGroup] = useState<any>(null);
   const [partialQty, setPartialQty] = useState("");
 
   useEffect(() => {
@@ -732,7 +735,6 @@ export default function Dispatch() {
                     <tr>
                       <th className="py-3 px-4">Party Name / Order No</th>
                       <th className="py-3 px-3">Designs</th>
-                      <th className="py-3 px-3">Colours (Combined)</th>
                       <th className="py-3 px-3 text-right">Order Qty</th>
                       <th className="py-3 px-3 text-right">Produced Qty</th>
                       <th className="py-3 px-3 text-right">Pending Qty</th>
@@ -762,20 +764,6 @@ export default function Dispatch() {
                             {group.designs.join(", ") || "-"}
                           </td>
 
-                          <td className="py-3.5 px-3 text-slate-700">
-                            <div className="flex flex-wrap gap-1">
-                              {group.colours.map((c, i) => (
-                                <span
-                                  key={i}
-                                  className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200"
-                                >
-                                  {c}
-                                </span>
-                              ))}
-                              {group.colours.length === 0 && "-"}
-                            </div>
-                          </td>
-
                           <td className="py-3.5 px-3 font-semibold text-slate-900 text-right">
                             {group.totalOrder} PCS / {Math.floor(group.totalOrder / parcelPcs)} Carton
                           </td>
@@ -789,14 +777,25 @@ export default function Dispatch() {
                           </td>
 
                           <td className="py-3.5 px-4 text-center">
-                            <div className="flex justify-center gap-2">
+                            <div className="flex justify-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setViewGroup(group);
+                                  setShowViewModal(true);
+                                }}
+                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2.5 py-1.5 rounded-lg text-xs inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-500" />
+                                View
+                              </button>
+
                               <button
                                 onClick={() => {
                                   setSelectedGroup(group);
                                   setPartialQty("");
                                   setShowPartialModal(true);
                                 }}
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs"
+                                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-2.5 py-1.5 rounded-lg text-xs"
                               >
                                 Partial
                               </button>
@@ -804,7 +803,7 @@ export default function Dispatch() {
                               <button
                                 disabled={submittingGroupKey === group.groupKey}
                                 onClick={() => handleDispatchGroup(group)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50"
                               >
                                 {submittingGroupKey === group.groupKey ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -859,37 +858,31 @@ export default function Dispatch() {
                         </div>
                       </div>
 
-                      {group.colours.length > 0 && (
-                        <div>
-                          <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-1">Colours</span>
-                          <div className="flex flex-wrap gap-1">
-                            {group.colours.map((c, i) => (
-                              <span
-                                key={i}
-                                className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800 border border-slate-200"
-                              >
-                                {c}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="pt-1 flex justify-end gap-2">
+                      <div className="pt-1 flex justify-end gap-1.5">
+                        <button
+                          onClick={() => {
+                            setViewGroup(group);
+                            setShowViewModal(true);
+                          }}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2.5 py-1.5 rounded-lg text-xs inline-flex items-center gap-1"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-500" />
+                          View
+                        </button>
                         <button
                           onClick={() => {
                             setSelectedGroup(group);
                             setPartialQty("");
                             setShowPartialModal(true);
                           }}
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs"
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-2.5 py-1.5 rounded-lg text-xs"
                         >
                           Partial
                         </button>
                         <button
                           disabled={submittingGroupKey === group.groupKey}
                           onClick={() => handleDispatchGroup(group)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3.5 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50"
                         >
                           {submittingGroupKey === group.groupKey ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1060,6 +1053,78 @@ export default function Dispatch() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* VIEW ORDER DETAILS MODAL */}
+      {showViewModal && viewGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Order Details</h3>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">
+                  Order #{viewGroup.orderNo} • Party: {viewGroup.partyName}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  setViewGroup(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-slate-700 uppercase">
+                Design: {viewGroup.designs.join(", ") || "-"}
+              </div>
+
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-100 text-slate-600 uppercase font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Colour</th>
+                      <th className="py-2.5 px-3 text-right">Quantity</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {viewGroup.jobs.map((job: PlannedJob, idx: number) => {
+                      const item = job.order_items;
+                      const colourName = item?.colours?.colour_name || "-";
+                      const qty = item?.quantity ?? 0;
+                      const unit = item?.unit || "Mtr";
+                      return (
+                        <tr key={job.id || idx} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-medium text-slate-800">
+                            {colourName}
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-900 text-right">
+                            {qty} {unit}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-100">
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  setViewGroup(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
