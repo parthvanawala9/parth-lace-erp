@@ -8,6 +8,17 @@ type PrintRow = {
   col4Value: string;
 };
 
+type SavedPrintData = {
+  name: string;
+  savedAt: string;
+  dabbi: string;
+  katai: string;
+  kataiOrder2: string;
+  colourValues: Record<string, { col3Value: string; col4Value: string }>;
+};
+
+const SAVED_PRINT_DATA_KEY = "parth_lace_saved_print_data_v1";
+
 export default function PrintMachineProgram() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -33,6 +44,114 @@ export default function PrintMachineProgram() {
   const [kataiOrder2, setKataiOrder2] = useState("");
   const [rows, setRows] = useState<PrintRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [savedPrintData, setSavedPrintData] = useState<SavedPrintData[]>([]);
+  const [selectedSavedDataName, setSelectedSavedDataName] = useState("");
+  const [saveName, setSaveName] = useState("");
+  const [showSaveDataBox, setShowSaveDataBox] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SAVED_PRINT_DATA_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setSavedPrintData(parsed);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load saved print data:", error);
+    }
+  }, []);
+
+  const persistSavedPrintData = (data: SavedPrintData[]) => {
+    setSavedPrintData(data);
+    localStorage.setItem(SAVED_PRINT_DATA_KEY, JSON.stringify(data));
+  };
+
+  const saveCurrentPrintData = () => {
+    const name = saveName.trim();
+    if (!name) {
+      alert("Please enter a name for this saved data.");
+      return;
+    }
+
+    const colourValues: Record<string, { col3Value: string; col4Value: string }> = {};
+
+    rows.forEach((row) => {
+      colourValues[row.colour_name.trim().toLowerCase()] = {
+        col3Value: row.col3Value,
+        col4Value: row.col4Value,
+      };
+    });
+
+    const newData: SavedPrintData = {
+      name,
+      savedAt: new Date().toISOString(),
+      dabbi,
+      katai,
+      kataiOrder2,
+      colourValues,
+    };
+
+    const updated = [
+      newData,
+      ...savedPrintData.filter(
+        (item) => item.name.trim().toLowerCase() !== name.toLowerCase()
+      ),
+    ];
+
+    persistSavedPrintData(updated);
+    setSelectedSavedDataName(name);
+    setSaveName("");
+    setShowSaveDataBox(false);
+    alert(`Saved "${name}". You can use it for any design.`);
+  };
+
+  const applySavedPrintData = (data: SavedPrintData) => {
+    setDabbi(data.dabbi || "");
+    setKatai(data.katai || "");
+    setKataiOrder2(data.kataiOrder2 || "");
+
+    setRows((currentRows) =>
+      currentRows.map((row) => {
+        const saved = data.colourValues[row.colour_name.trim().toLowerCase()];
+        return {
+          ...row,
+          col3Value: saved?.col3Value ?? "",
+          col4Value: saved?.col4Value ?? "",
+        };
+      })
+    );
+  };
+
+  const handleOpenSavedPrintData = (name: string) => {
+    setSelectedSavedDataName(name);
+
+    if (!name) return;
+
+    const data = savedPrintData.find((item) => item.name === name);
+    if (data) {
+      applySavedPrintData(data);
+    }
+  };
+
+  const deleteSavedPrintData = () => {
+    if (!selectedSavedDataName) return;
+
+    const confirmed = window.confirm(
+      `Delete saved print data "${selectedSavedDataName}"?`
+    );
+
+    if (!confirmed) return;
+
+    const updated = savedPrintData.filter(
+      (item) => item.name !== selectedSavedDataName
+    );
+
+    persistSavedPrintData(updated);
+    setSelectedSavedDataName("");
+  };
 
   const buildRowsFromOrder = useCallback(() => {
     setLoading(true);
@@ -140,14 +259,100 @@ export default function PrintMachineProgram() {
           Back
         </button>
 
-        <button
-          onClick={handlePrint}
-          className="inline-flex items-center px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-black hover:bg-slate-800 rounded-lg transition-colors shadow-sm"
-        >
-          <Printer className="w-4 h-4 mr-1.5" />
-          Print Page
-        </button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {savedPrintData.length > 0 && (
+            <>
+              <select
+                value={selectedSavedDataName}
+                onChange={(e) => handleOpenSavedPrintData(e.target.value)}
+                className="h-9 px-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-lg text-slate-700"
+                title="Open saved print data"
+              >
+                <option value="">Open Saved Data</option>
+                {savedPrintData.map((item) => (
+                  <option key={item.name} value={item.name}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+
+              {selectedSavedDataName && (
+                <button
+                  type="button"
+                  onClick={deleteSavedPrintData}
+                  className="h-9 px-3 text-xs font-semibold text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              )}
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowSaveDataBox((v) => !v)}
+            className="inline-flex items-center h-9 px-3 text-xs sm:text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-lg transition-colors"
+          >
+            Save Data
+          </button>
+
+          <button
+            onClick={handlePrint}
+            className="inline-flex items-center px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-black hover:bg-slate-800 rounded-lg transition-colors shadow-sm"
+          >
+            <Printer className="w-4 h-4 mr-1.5" />
+            Print Page
+          </button>
+        </div>
       </div>
+
+      {showSaveDataBox && (
+        <div className="max-w-4xl mx-auto mb-3 print:hidden">
+          <div className="bg-white border border-blue-200 rounded-lg p-3 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex-1">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Save manual print data as
+                </label>
+                <input
+                  type="text"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveCurrentPrintData();
+                  }}
+                  placeholder="Example: PLI Order 1022"
+                  className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={saveCurrentPrintData}
+                className="h-9 px-4 mt-5 sm:mt-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold"
+              >
+                Save
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaveDataBox(false);
+                  setSaveName("");
+                }}
+                className="h-9 px-3 mt-5 sm:mt-5 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-500 mt-2">
+              Saves Dabbi, both Order columns, both Katai values, and matches manual values by Colour Name. You can open it later and use it for a different design.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <div className="print-container max-w-4xl mx-auto bg-white p-3 sm:p-6 rounded-xl border border-slate-200 print:border-none print:shadow-none print:p-0 print:w-full">
@@ -197,19 +402,22 @@ export default function PrintMachineProgram() {
               <thead>
                 <tr className="bg-slate-100 print:bg-slate-200 border-b-2 border-black text-center font-bold uppercase">
                   <th className="p-1 border-r-2 border-black w-8">S.N</th>
-                  <th className="p-1 border-r-2 border-black text-left">
+                  <th className="p-1 border-r-2 border-black text-left w-20">
                     Colour Name
                   </th>
-                  <th className="p-1 border-r-2 border-black w-24 sm:w-32">
+                  <th className="p-1 border-r-2 border-black w-24">
                     Order 1
                   </th>
-                  <th className="p-1 w-24 sm:w-32">Order 2</th>
+                  <th className="p-1 border-r-2 border-black w-24">Order 2</th>
+                  <th className="p-1 border-r-2 border-black w-8">1-34</th>
+                  <th className="p-1 border-r-2 border-black w-8">35-67</th>
+                  <th className="p-1 w-8">68-100</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-4 text-center text-slate-500">
+                    <td colSpan={7} className="p-4 text-center text-slate-500">
                       No colours found for this order.
                     </td>
                   </tr>
@@ -239,7 +447,7 @@ export default function PrintMachineProgram() {
                       </td>
 
                       {/* Column 3: Manual Input 2 */}
-                      <td className="p-1">
+                      <td className="p-1 border-r-2 border-black">
                         <input
                           type="text"
                           value={row.col4Value}
@@ -248,6 +456,17 @@ export default function PrintMachineProgram() {
                           }
                           className="w-full h-7 px-1 text-center bg-transparent border border-slate-200 focus:border-black rounded-none print:border-none focus:outline-none"
                         />
+                      </td>
+
+                      {/* 3 columns for 1-100 */}
+                      <td className="p-1 border-r-2 border-black text-center text-[10px]">
+                        {index + 1 <= 34 ? index + 1 : ""}
+                      </td>
+                      <td className="p-1 border-r-2 border-black text-center text-[10px]">
+                        {index + 35 <= 67 ? index + 35 : ""}
+                      </td>
+                      <td className="p-1 text-center text-[10px]">
+                        {index + 68 <= 100 ? index + 68 : ""}
                       </td>
                     </tr>
                   ))
@@ -355,9 +574,17 @@ export default function PrintMachineProgram() {
 
           /* Keep colour names clearly readable. */
           .print-container td:nth-child(2) {
-            font-size: 11px !important;
+            font-size: 9px !important;
             font-weight: 700 !important;
             white-space: nowrap !important;
+          }
+
+          .print-container th:nth-child(n+5),
+          .print-container td:nth-child(n+5) {
+            width: 8mm !important;
+            padding-left: 1px !important;
+            padding-right: 1px !important;
+            text-align: center !important;
           }
 
           .print-container input {
