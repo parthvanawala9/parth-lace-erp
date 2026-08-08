@@ -41,7 +41,6 @@ type OrderItemForm = {
   quantity: number;
   unit: "Pcs" | "Carton" | "Line";
   remarks: string;
-  parcel_pcs: number;
 };
 
 const UNIT_OPTIONS: ("Pcs" | "Carton" | "Line")[] = ["Pcs", "Carton", "Line"];
@@ -61,11 +60,12 @@ export default function Orders() {
 
   // Item Entry State
   const [selectedDesignId, setSelectedDesignId] = useState<number | "">("");
+  const [designSearchInput, setDesignSearchInput] = useState<string>("");
+  const [isDesignDropdownOpen, setIsDesignDropdownOpen] = useState<boolean>(false);
   const [colourSearch, setColourSearch] = useState<string>("");
   const [selectedColourIds, setSelectedColourIds] = useState<number[]>([]);
   const [totalQty, setTotalQty] = useState<string>("5");
   const [unit, setUnit] = useState<"Pcs" | "Carton" | "Line">("Carton");
-  const [parcelPcs, setParcelPcs] = useState<number>(420);
   const [autoColourSource, setAutoColourSource] = useState<string>("");
 
   // Quick Add Party Modal State
@@ -87,6 +87,15 @@ export default function Orders() {
     loadMasterData();
     fetchLatestOrderNo();
   }, []);
+
+  useEffect(() => {
+    if (selectedDesignId) {
+      const found = designs.find((d) => d.id === selectedDesignId);
+      if (found) setDesignSearchInput(found.design_name);
+    } else {
+      setDesignSearchInput("");
+    }
+  }, [selectedDesignId, designs]);
 
   async function loadMasterData() {
     setLoading(true);
@@ -291,6 +300,8 @@ export default function Orders() {
     setPartyId("");
     setFormItems([]);
     setSelectedDesignId("");
+    setDesignSearchInput("");
+    setIsDesignDropdownOpen(false);
     setColourSearch("");
     setSelectedColourIds([]);
     setTotalQty("5");
@@ -338,22 +349,21 @@ export default function Orders() {
     const qtyNum = Number(totalQty) || 1;
     const colorCount = selectedColourIds.length;
 
-    const totalPieces = unit === "Carton" ? qtyNum * parcelPcs : qtyNum;
+    const totalPieces = unit === "Carton" ? qtyNum * PIECES_PER_CARTON : qtyNum;
     const qtyPerColour = Number((totalPieces / colorCount).toFixed(2));
 
     const newItems: OrderItemForm[] = selectedColourIds.map((cId) => {
       const colourObj = colours.find((c) => c.id === cId);
       const colourName = colourObj?.colour_name || "N/A";
       return {
-  design_id: designObj.id,
-  design_name: designObj.design_name,
-  colour_id: cId,
-  colour_name: colourName,
-  quantity: qtyPerColour,
-  unit: "Pcs",
-  remarks: `Colour: ${colourName} (${qtyPerColour} Pcs from ${qtyNum} ${unit} Mix)`,
-  parcel_pcs: parcelPcs,
-};
+        design_id: designObj.id,
+        design_name: designObj.design_name,
+        colour_id: cId,
+        colour_name: colourName,
+        quantity: qtyPerColour,
+        unit: "Pcs",
+        remarks: `Colour: ${colourName} (${qtyPerColour} Pcs from ${qtyNum} ${unit} Mix)`,
+      };
     });
 
     setFormItems((prev) => [...prev, ...newItems]);
@@ -388,7 +398,6 @@ export default function Orders() {
         quantity: qtyPerLine,
         unit: unit,
         remarks: "",
-        parcel_pcs: parcelPcs,
       };
     });
 
@@ -427,14 +436,13 @@ export default function Orders() {
       if (createOrderErr) throw createOrderErr;
 
       const itemsToInsert = formItems.map((item) => ({
-  order_id: newOrder.id,
-  design_id: item.design_id,
-  colour_id: item.colour_id,
-  quantity: item.quantity,
-  unit: item.unit,
-  parcel_pcs: item.parcel_pcs,
-  remarks: item.remarks || "",
-}));
+        order_id: newOrder.id,
+        design_id: item.design_id,
+        colour_id: item.colour_id,
+        quantity: item.quantity,
+        unit: item.unit,
+        remarks: item.remarks || "",
+      }));
 
       const { error: itemsErr } = await supabase.from("order_items").insert(itemsToInsert);
       if (itemsErr) throw itemsErr;
@@ -566,26 +574,73 @@ export default function Orders() {
                 <Plus className="w-3.5 h-3.5" /> Add New Design
               </button>
             </div>
-            <select
-              value={selectedDesignId}
-              onChange={(e) =>
-                setSelectedDesignId(e.target.value ? Number(e.target.value) : "")
-              }
-              className="w-full p-2.5 text-sm bg-white border border-slate-300 rounded-lg font-bold text-slate-800"
-            >
-              <option value="">Select Design...</option>
-              {designs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.design_name}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  value={designSearchInput}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDesignSearchInput(value);
+                    setIsDesignDropdownOpen(true);
+
+                    const exactMatch = designs.find(
+                      (d) => d.design_name.trim().toLowerCase() === value.trim().toLowerCase()
+                    );
+                    setSelectedDesignId(exactMatch ? exactMatch.id : "");
+                  }}
+                  onFocus={() => setIsDesignDropdownOpen(true)}
+                  placeholder="Type design number or select..."
+                  className="w-full p-2.5 pr-9 text-sm bg-white border border-slate-300 rounded-lg font-bold text-slate-800"
+                />
+                <button
+                  type="button"
+                  aria-label="Open design dropdown"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setIsDesignDropdownOpen((open) => !open)}
+                  className="absolute right-2.5 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ▼
+                </button>
+              </div>
+
+              {isDesignDropdownOpen && (
+                <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg divide-y divide-slate-100">
+                  {designs
+                    .filter((d) =>
+                      d.design_name.toLowerCase().includes(designSearchInput.toLowerCase())
+                    )
+                    .map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setSelectedDesignId(d.id);
+                          setDesignSearchInput(d.design_name);
+                          setIsDesignDropdownOpen(false);
+                        }}
+                        className="w-full p-2.5 text-left hover:bg-blue-50 cursor-pointer text-sm font-bold text-slate-800"
+                      >
+                        {d.design_name}
+                      </button>
+                    ))}
+                  {designs.filter((d) =>
+                    d.design_name.toLowerCase().includes(designSearchInput.toLowerCase())
+                  ).length === 0 && (
+                    <div className="p-3 text-center text-xs text-slate-400">
+                      No matching designs found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {selectedDesignId && (
             <div className="space-y-4 pt-2">
               {/* Quantity & Unit Selection */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3.5 border border-slate-200 rounded-lg">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 border border-slate-200 rounded-lg">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Quantity
@@ -615,19 +670,7 @@ export default function Orders() {
                   </select>
                 </div>
               </div>
-<div>
-  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-    Parcel PCS
-  </label>
 
-  <input
-    type="number"
-    value={parcelPcs}
-    onChange={(e) => setParcelPcs(Number(e.target.value))}
-    className="w-full p-2 text-sm border border-slate-300 rounded font-bold text-slate-800"
-    placeholder="420"
-  />
-</div>
               {/* Colour Checkbox Selection */}
               <div className="bg-white border border-slate-200 p-4 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
@@ -742,9 +785,9 @@ export default function Orders() {
                       <div className="font-bold text-xs text-slate-900">
                         Design: {item.design_name}
                       </div>
-                      <span className="font-extrabold text-sm text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-100">
-  Parcel: {item.parcel_pcs} PCS
-</span>
+                      <div className="text-xs text-slate-600">
+                        Colour: <span className="font-bold text-slate-800">{item.colour_name}</span>
+                      </div>
                       {item.remarks && (
                         <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded mt-1 font-medium">
                           {item.remarks}
