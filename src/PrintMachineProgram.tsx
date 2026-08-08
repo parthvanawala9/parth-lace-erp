@@ -29,6 +29,8 @@ export default function PrintMachineProgram() {
   const [design, setDesign] = useState("");
   const [date, setDate] = useState("");
   const [dabbi, setDabbi] = useState("");
+  const [katai, setKatai] = useState("");
+  const [kataiOrder2, setKataiOrder2] = useState("");
   const [rows, setRows] = useState<PrintRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -127,7 +129,7 @@ export default function PrintMachineProgram() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-2 sm:p-6 print:bg-white print:p-0 print:m-0">
+    <div className="print-page min-h-screen bg-slate-100 p-2 sm:p-6 print:bg-white print:p-0 print:m-0">
       {/* Top Action Bar (Hidden during printing) */}
       <div className="max-w-4xl mx-auto mb-4 flex items-center justify-between print:hidden">
         <button
@@ -148,17 +150,17 @@ export default function PrintMachineProgram() {
       </div>
 
       {/* Main Container */}
-      <div className="max-w-4xl mx-auto bg-white p-3 sm:p-6 rounded-xl border border-slate-200 print:border-none print:shadow-none print:p-0 print:w-full">
+      <div className="print-container max-w-4xl mx-auto bg-white p-3 sm:p-6 rounded-xl border border-slate-200 print:border-none print:shadow-none print:p-0 print:w-full">
         {/* Document Header */}
-        <div className="border-2 border-black p-3 mb-4 text-center">
-          <h1 className="text-xl sm:text-2xl font-black uppercase tracking-wide">
+        <div className="border-2 border-black p-2 mb-2 text-center">
+          <h1 className="text-lg sm:text-xl font-black uppercase tracking-wide">
             PARTH LACE ERP
           </h1>
-          <h2 className="text-base sm:text-lg font-bold uppercase tracking-wider mt-1 border-t border-black pt-1">
+          <h2 className="text-sm sm:text-base font-bold uppercase tracking-wider mt-0.5 border-t border-black pt-0.5">
             MACHINE PROGRAM
           </h2>
 
-          <div className="grid grid-cols-2 text-left mt-3 pt-2 border-t border-black text-xs sm:text-sm font-bold gap-y-2 gap-x-4">
+          <div className="grid grid-cols-2 text-left mt-1.5 pt-1 border-t border-black text-xs font-bold gap-y-1 gap-x-3">
             <div>
               Machine : <span className="font-normal">{machine || "N/A"}</span>
             </div>
@@ -194,14 +196,14 @@ export default function PrintMachineProgram() {
             <table className="w-full border-collapse border-2 border-black text-xs sm:text-sm">
               <thead>
                 <tr className="bg-slate-100 print:bg-slate-200 border-b-2 border-black text-center font-bold uppercase">
-                  <th className="p-2 border-r-2 border-black w-10">S.N</th>
-                  <th className="p-2 border-r-2 border-black text-left">
+                  <th className="p-1 border-r-2 border-black w-8">S.N</th>
+                  <th className="p-1 border-r-2 border-black text-left">
                     Colour Name
                   </th>
-                  <th className="p-2 border-r-2 border-black w-28 sm:w-36">
+                  <th className="p-1 border-r-2 border-black w-24 sm:w-32">
                     Order 1
                   </th>
-                  <th className="p-2 w-28 sm:w-36">Order 2</th>
+                  <th className="p-1 w-24 sm:w-32">Order 2</th>
                 </tr>
               </thead>
               <tbody>
@@ -215,12 +217,12 @@ export default function PrintMachineProgram() {
                   rows.map((row, index) => (
                     <tr key={index} className="border-b border-black text-center">
                       {/* Serial Number */}
-                      <td className="p-1.5 border-r-2 border-black font-semibold text-slate-700">
+                      <td className="p-1 border-r-2 border-black font-semibold text-slate-700">
                         {index + 1}
                       </td>
 
                       {/* Column 1: Mix Colours */}
-                      <td className="p-1.5 border-r-2 border-black text-left font-bold text-slate-900 uppercase">
+                      <td className="p-1 border-r-2 border-black text-left font-bold text-slate-900 uppercase">
                         {row.colour_name}
                       </td>
 
@@ -254,6 +256,30 @@ export default function PrintMachineProgram() {
             </table>
           </div>
         )}
+
+        {/* Katai fields at the bottom - one for each order column */}
+        <div className="mt-2 border-2 border-black grid grid-cols-2 text-sm font-bold">
+          <div className="px-2 py-1.5 border-r-2 border-black flex items-center gap-2">
+            <span>Katai Order 1 :</span>
+            <input
+              type="text"
+              value={katai}
+              onChange={(e) => setKatai(e.target.value)}
+              placeholder="Write Katai..."
+              className="flex-1 min-w-0 h-7 px-2 font-normal bg-transparent border border-slate-300 focus:border-black rounded print:border-none focus:outline-none"
+            />
+          </div>
+          <div className="px-2 py-1.5 flex items-center gap-2">
+            <span>Katai Order 2 :</span>
+            <input
+              type="text"
+              value={kataiOrder2}
+              onChange={(e) => setKataiOrder2(e.target.value)}
+              placeholder="Write Katai..."
+              className="flex-1 min-w-0 h-7 px-2 font-normal bg-transparent border border-slate-300 focus:border-black rounded print:border-none focus:outline-none"
+            />
+          </div>
+        </div>
       </div>
 
       {/* CSS Overrides for Clean A4 Printing */}
@@ -261,23 +287,136 @@ export default function PrintMachineProgram() {
         @media print {
           @page {
             size: A4 portrait;
-            margin: 8mm;
+            margin: 4mm;
           }
-          body {
-            background: white !important;
-            color: black !important;
+
+          html,
+          body,
+          #root {
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            background: #fff !important;
+            color: #000 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .print\\:hidden {
+
+          .print-page {
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            background: #fff !important;
+          }
+
+          .print-container {
+            width: 100% !important;
+            max-width: none !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            font-size: 10px !important;
+            zoom: 1 !important;
+          }
+
+          .print-container h1 {
+            font-size: 18px !important;
+            line-height: 1.05 !important;
+          }
+
+          .print-container h2 {
+            font-size: 13px !important;
+            line-height: 1.05 !important;
+          }
+
+          .print-container table {
+            width: 100% !important;
+            font-size: 10px !important;
+            line-height: 1 !important;
+            border-collapse: collapse !important;
+          }
+
+          .print-container th,
+          .print-container td {
+            padding: 2px 3px !important;
+            line-height: 1 !important;
+            height: auto !important;
+          }
+
+          /* Keep colour names clearly readable. */
+          .print-container td:nth-child(2) {
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            white-space: nowrap !important;
+          }
+
+          .print-container input {
+            height: 18px !important;
+            min-height: 18px !important;
+            padding: 0 2px !important;
+            font-size: 10px !important;
+            line-height: 1 !important;
+            border: none !important;
+            box-shadow: none !important;
+            outline: none !important;
+          }
+
+          .print-container .mt-2 {
+            margin-top: 2px !important;
+          }
+
+          .print-container .mb-2,
+          .print-container .mb-4 {
+            margin-bottom: 2px !important;
+          }
+
+          .print-container .p-1,
+          .print-container .p-1\.5,
+          .print-container .p-2,
+          .print-container .p-3 {
+            padding: 2px !important;
+          }
+
+          .print-container .gap-3,
+          .print-container .gap-4 {
+            gap: 3px !important;
+          }
+
+          /* Do not force the whole document/table onto a second page. */
+          .print-container,
+          .print-container table,
+          .print-container tbody,
+          .print-container tr {
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
+
+          .print-container tr {
+            break-after: auto !important;
+            page-break-after: auto !important;
+          }
+
+          .print\:hidden {
             display: none !important;
           }
+
           input {
             border: none !important;
             box-shadow: none !important;
             outline: none !important;
           }
         }
+
       `}</style>
     </div>
   );
