@@ -33,6 +33,12 @@ type Colour = {
   colour_name: string;
 };
 
+type PartyProgramLayout = {
+  id: number;
+  party_id: number;
+  layout_name: string;
+};
+
 type OrderItemForm = {
   design_id: number;
   design_name: string;
@@ -40,11 +46,11 @@ type OrderItemForm = {
   colour_name: string;
   quantity: number;
   unit: "Pcs" | "Carton" | "Line";
+  parcel_pcs: number;
   remarks: string;
 };
 
 const UNIT_OPTIONS: ("Pcs" | "Carton" | "Line")[] = ["Pcs", "Carton", "Line"];
-const PIECES_PER_CARTON = 420;
 
 export default function Orders() {
   const [parties, setParties] = useState<Party[]>([]);
@@ -56,6 +62,8 @@ export default function Orders() {
   // Order Header State
   const [orderNo, setOrderNo] = useState<number>(1001);
   const [partyId, setPartyId] = useState<number | "">("");
+  const [partyLayouts, setPartyLayouts] = useState<PartyProgramLayout[]>([]);
+  const [selectedLayoutId, setSelectedLayoutId] = useState<number | "">("");
   const [formItems, setFormItems] = useState<OrderItemForm[]>([]);
 
   // Item Entry State
@@ -65,6 +73,7 @@ export default function Orders() {
   const [colourSearch, setColourSearch] = useState<string>("");
   const [selectedColourIds, setSelectedColourIds] = useState<number[]>([]);
   const [totalQty, setTotalQty] = useState<string>("5");
+  const [parcelPcs, setParcelPcs] = useState<string>("420");
   const [unit, setUnit] = useState<"Pcs" | "Carton" | "Line">("Carton");
   const [autoColourSource, setAutoColourSource] = useState<string>("");
 
@@ -242,10 +251,12 @@ export default function Orders() {
     }
   }
 
-  // Auto-fetch colours from party_program_layout when party is selected
+  // Auto-fetch colours from the selected party program layout
   const handlePartyChange = async (selectedId: number | "") => {
     setPartyId(selectedId);
     setAutoColourSource("");
+    setPartyLayouts([]);
+    setSelectedLayoutId("");
 
     if (!selectedId) {
       setSelectedColourIds([]);
@@ -253,51 +264,121 @@ export default function Orders() {
     }
 
     const matchedParty = parties.find((p) => p.id === selectedId);
-    let autoColourIds: number[] = [];
 
-    // 1. Fetch configured sequence from party_program_layout table
     try {
-      const { data: layoutData } = await supabase
-        .from("party_program_layout")
-        .select("colour_id")
-        .eq("party_id", selectedId);
+      // Load all saved colour-chart layouts for this party
+      const { data: layoutsData, error: layoutsError } = await supabase
+        .from("party_program_layouts")
+        .select("id, party_id, layout_name")
+        .eq("party_id", selectedId)
+        .order("layout_name", { ascending: true });
 
-      if (layoutData && layoutData.length > 0) {
-        autoColourIds = layoutData
+      if (layoutsError) throw layoutsError;
+
+      const layouts = (layoutsData || []) as PartyProgramLayout[];
+      setPartyLayouts(layouts);
+
+      // Keep existing behaviour by automatically using the first layout
+      if (layouts.length > 0) {
+        const firstLayoutId = layouts[0].id;
+        setSelectedLayoutId(firstLayoutId);
+
+        const { data: layoutData, error: layoutError } = await supabase
+          .from("party_program_layout")
+          .select("colour_id")
+          .eq("party_id", selectedId)
+          .eq("layout_id", firstLayoutId);
+
+        if (layoutError) throw layoutError;
+
+        const autoColourIds = (layoutData || [])
           .map((row: any) => Number(row.colour_id))
           .filter((id: number) => !isNaN(id) && colours.some((c) => c.id === id));
+
+        if (autoColourIds.length > 0) {
+          setSelectedColourIds(autoColourIds);
+          setAutoColourSource(
+            `Auto-loaded ${autoColourIds.length} colour(s) from ${layouts[0].layout_name}`
+          );
+          return;
+        }
       }
+
+      // Preserve existing fallback to favourite colours
+      if (
+        matchedParty?.favourite_colours &&
+        matchedParty.favourite_colours.length > 0
+      ) {
+        const favNames = matchedParty.favourite_colours.map((name) =>
+          String(name).trim().toLowerCase()
+        );
+
+        const matchedIds = colours
+          .filter((c) => favNames.includes(c.colour_name.trim().toLowerCase()))
+          .map((c) => c.id);
+
+        if (matchedIds.length > 0) {
+          setSelectedColourIds(Array.from(new Set(matchedIds)));
+          setAutoColourSource(
+            `Auto-loaded ${matchedIds.length} favourite colour(s) for ${
+              matchedParty?.name || matchedParty?.party_name || "selected party"
+            }`
+          );
+          return;
+        }
+      }
+
+      setSelectedColourIds([]);
     } catch (err) {
-      console.error("Error fetching program layout:", err);
+      console.error("Error fetching program layouts:", err);
+      setSelectedColourIds([]);
+    }
+  };
+
+  // Change only the selected colour chart/layout
+  const handleLayoutChange = async (layoutId: number | "") => {
+    setSelectedLayoutId(layoutId);
+
+    if (!layoutId || !partyId) {
+      setSelectedColourIds([]);
+      setAutoColourSource("");
+      return;
     }
 
-    // 2. Fallback to favourite_colours array if program layout is empty
-    if (autoColourIds.length === 0 && matchedParty?.favourite_colours && matchedParty.favourite_colours.length > 0) {
-      const favNames = matchedParty.favourite_colours.map((name) =>
-        String(name).trim().toLowerCase()
-      );
+    try {
+      const { data: layoutData, error: layoutError } = await supabase
+        .from("party_program_layout")
+        .select("colour_id")
+        .eq("party_id", Number(partyId))
+        .eq("layout_id", Number(layoutId));
 
-      const matchedIds = colours
-        .filter((c) => favNames.includes(c.colour_name.trim().toLowerCase()))
-        .map((c) => c.id);
+      if (layoutError) throw layoutError;
 
-      autoColourIds = Array.from(new Set(matchedIds));
-    }
+      const autoColourIds = (layoutData || [])
+        .map((row: any) => Number(row.colour_id))
+        .filter((id: number) => !isNaN(id) && colours.some((c) => c.id === id));
 
-    if (autoColourIds.length > 0) {
+      const selectedLayout = partyLayouts.find((layout) => layout.id === Number(layoutId));
+
       setSelectedColourIds(autoColourIds);
       setAutoColourSource(
-        `Auto-loaded ${autoColourIds.length} layout colour(s) for ${
-          matchedParty?.name || matchedParty?.party_name || "selected party"
-        }`
+        autoColourIds.length > 0
+          ? `Auto-loaded ${autoColourIds.length} colour(s) from ${
+              selectedLayout?.layout_name || "selected layout"
+            }`
+          : `No colours found in ${selectedLayout?.layout_name || "selected layout"}`
       );
-    } else {
+    } catch (err) {
+      console.error("Error fetching selected program layout:", err);
       setSelectedColourIds([]);
+      setAutoColourSource("");
     }
   };
 
   const handleResetForm = () => {
     setPartyId("");
+    setPartyLayouts([]);
+    setSelectedLayoutId("");
     setFormItems([]);
     setSelectedDesignId("");
     setDesignSearchInput("");
@@ -305,6 +386,7 @@ export default function Orders() {
     setColourSearch("");
     setSelectedColourIds([]);
     setTotalQty("5");
+    setParcelPcs("420");
     setUnit("Carton");
     setAutoColourSource("");
     fetchLatestOrderNo();
@@ -349,7 +431,8 @@ export default function Orders() {
     const qtyNum = Number(totalQty) || 1;
     const colorCount = selectedColourIds.length;
 
-    const totalPieces = unit === "Carton" ? qtyNum * PIECES_PER_CARTON : qtyNum;
+    const parcelPcsNum = Number(parcelPcs) || 420;
+    const totalPieces = unit === "Carton" ? qtyNum * parcelPcsNum : qtyNum;
     const qtyPerColour = Number((totalPieces / colorCount).toFixed(2));
 
     const newItems: OrderItemForm[] = selectedColourIds.map((cId) => {
@@ -362,6 +445,7 @@ export default function Orders() {
         colour_name: colourName,
         quantity: qtyPerColour,
         unit: "Pcs",
+        parcel_pcs: parcelPcsNum,
         remarks: `Colour: ${colourName} (${qtyPerColour} Pcs from ${qtyNum} ${unit} Mix)`,
       };
     });
@@ -387,6 +471,7 @@ export default function Orders() {
     if (!designObj) return;
 
     const qtyPerLine = Number(totalQty) || 1;
+    const parcelPcsNum = Number(parcelPcs) || 420;
 
     const newItems: OrderItemForm[] = selectedColourIds.map((cId) => {
       const colourObj = colours.find((c) => c.id === cId);
@@ -397,6 +482,7 @@ export default function Orders() {
         colour_name: colourObj?.colour_name || "N/A",
         quantity: qtyPerLine,
         unit: unit,
+        parcel_pcs: parcelPcsNum,
         remarks: "",
       };
     });
@@ -441,6 +527,7 @@ export default function Orders() {
         colour_id: item.colour_id,
         quantity: item.quantity,
         unit: item.unit,
+        parcel_pcs: item.parcel_pcs,
         remarks: item.remarks || "",
       }));
 
@@ -541,6 +628,27 @@ export default function Orders() {
                 </option>
               ))}
             </select>
+
+            {partyId && partyLayouts.length > 0 && (
+              <div className="mt-3">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Colour Chart
+                </label>
+                <select
+                  value={selectedLayoutId}
+                  onChange={(e) =>
+                    handleLayoutChange(e.target.value ? Number(e.target.value) : "")
+                  }
+                  className="w-full p-2.5 text-sm bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:ring-2 focus:ring-blue-500"
+                >
+                  {partyLayouts.map((layout) => (
+                    <option key={layout.id} value={layout.id}>
+                      {layout.layout_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
@@ -640,19 +748,21 @@ export default function Orders() {
           {selectedDesignId && (
             <div className="space-y-4 pt-2">
               {/* Quantity & Unit Selection */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 border border-slate-200 rounded-lg">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3.5 border border-slate-200 rounded-lg">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Quantity
                   </label>
                   <input
                     type="number"
+                    min="0"
                     value={totalQty}
                     onChange={(e) => setTotalQty(e.target.value)}
                     className="w-full p-2 text-sm border border-slate-300 rounded font-bold text-slate-800"
                     placeholder="e.g. 5"
                   />
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Unit
@@ -668,6 +778,25 @@ export default function Orders() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Parcel PCS / Carton
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={parcelPcs}
+                    onChange={(e) => setParcelPcs(e.target.value)}
+                    className="w-full p-2 text-sm border border-slate-300 rounded font-bold text-slate-800"
+                    placeholder="e.g. 420 or 210"
+                  />
+                  {unit === "Carton" && (
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      {Number(totalQty || 0) * Number(parcelPcs || 0)} PCS total
+                    </p>
+                  )}
                 </div>
               </div>
 
