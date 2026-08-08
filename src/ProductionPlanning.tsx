@@ -979,7 +979,7 @@ export default function ProductionPlanning() {
 
                       {runningBatch ? (
                         <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg space-y-2">
-                          <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                          <div className="grid grid-cols-3 gap-2 items-center">
                             <div>
                               <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Machine</div>
                               <div className="font-bold text-slate-900 text-xs">{machine.machine_number}</div>
@@ -992,23 +992,23 @@ export default function ProductionPlanning() {
                               <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Design</div>
                               <div className="font-bold text-blue-700 text-xs">{runningBatch.design_name}</div>
                             </div>
-                            <div className="text-right">
-                              <div className="text-[10px] font-semibold text-emerald-800 mb-1">
+                            <div className="col-span-3 flex items-center justify-between gap-2">
+                              <div className="text-[10px] font-semibold text-emerald-800">
                                 {runningBatch.total_quantity} {runningBatch.unit}
                               </div>
                               <button
                                 onClick={() => setViewQueueBatch(runningBatch)}
-                                className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-700 border border-emerald-300 rounded font-semibold text-[10px]"
+                                className="px-2 py-1 bg-white hover:bg-emerald-50 text-slate-700 border border-emerald-300 rounded font-semibold text-[10px] whitespace-nowrap"
                               >
                                 View
                               </button>
                             </div>
                           </div>
 
-                          <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-end gap-2">
+                          <div className="pt-2 border-t border-emerald-200/60 flex flex-wrap items-center justify-end gap-2">
                             <button
                               onClick={() => completeProductionBatch(runningBatch)}
-                              className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors shadow-sm inline-flex items-center gap-1"
+                              className="px-2 py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors shadow-sm inline-flex items-center gap-1 whitespace-nowrap"
                             >
                               <CheckCircle2 className="w-3 h-3" />
                               Complete
@@ -1021,7 +1021,7 @@ export default function ProductionPlanning() {
                             </button>
                               <button
                                 onClick={() => removeRunningBatchFromMachine(runningBatch)}
-                                className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-red-50 text-red-700 border border-red-200 rounded transition-colors"
+                                className="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-red-50 text-red-700 border border-red-200 rounded transition-colors whitespace-nowrap"
                               >
                                 Remove
                               </button>
@@ -1053,7 +1053,7 @@ export default function ProductionPlanning() {
                               key={batch.batchKey}
                               className="p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors space-y-1.5"
                             >
-                              <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                              <div className="grid grid-cols-3 gap-2 items-center">
                                 <div>
                                   <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Machine</div>
                                   <div className="font-bold text-slate-900 text-xs">{machine.machine_number}</div>
@@ -1066,8 +1066,8 @@ export default function ProductionPlanning() {
                                   <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Design</div>
                                   <div className="font-bold text-blue-700 text-xs">{batch.design_name}</div>
                                 </div>
-                                <div className="text-right">
-                                  <div className="text-[10px] font-medium text-slate-700 mb-1">
+                                <div className="col-span-3 flex items-center justify-between gap-2">
+                                  <div className="text-[10px] font-medium text-slate-700">
                                     {batch.total_quantity} {batch.unit}
                                   </div>
                                   <button
@@ -1083,7 +1083,7 @@ export default function ProductionPlanning() {
                                 <span>Date: {batch.planned_date}</span>
                               </div>
 
-                              <div className="pt-1.5 border-t border-slate-200 flex items-center justify-end gap-1.5">
+                              <div className="pt-1.5 border-t border-slate-200 flex flex-wrap items-center justify-end gap-1.5">
                                 <button
                                   onClick={() => startProductionBatch(batch)}
                                   className="px-2 py-1 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors inline-flex items-center gap-1"
