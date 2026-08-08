@@ -22,8 +22,15 @@ type Colour = {
   colour_name: string;
 };
 
+type ProgramLayout = {
+  id: number;
+  party_id: number;
+  layout_name: string;
+};
+
 type ProgramItem = {
   id?: number;
+  layout_id?: number;
   party_id?: number;
   colour_id: number;
   colour_name?: string;
@@ -34,6 +41,9 @@ export default function PartyProgramLayout() {
   const [colours, setColours] = useState<Colour[]>([]);
   const [selectedPartyId, setSelectedPartyId] = useState<number | null>(null);
 
+  const [layouts, setLayouts] = useState<ProgramLayout[]>([]);
+  const [selectedLayoutId, setSelectedLayoutId] = useState<number | null>(null);
+
   const [programItems, setProgramItems] = useState<ProgramItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -43,13 +53,25 @@ export default function PartyProgramLayout() {
     fetchInitialData();
   }, []);
 
+  // When party changes, fetch its saved layouts from party_program_layouts
   useEffect(() => {
     if (selectedPartyId) {
-      loadPartyLayout(selectedPartyId);
+      loadPartyLayouts(selectedPartyId);
     } else {
+      setLayouts([]);
+      setSelectedLayoutId(null);
       setProgramItems([]);
     }
   }, [selectedPartyId]);
+
+  // When layout changes, load its colour rows using layout_id
+  useEffect(() => {
+    if (selectedLayoutId) {
+      loadLayoutItems(selectedLayoutId);
+    } else {
+      setProgramItems([]);
+    }
+  }, [selectedLayoutId]);
 
   // 1. Load Parties and Colours
   async function fetchInitialData() {
@@ -68,8 +90,6 @@ export default function PartyProgramLayout() {
       if (partiesErr) console.error("Error fetching parties:", partiesErr);
       if (coloursErr) console.error("Error fetching colours:", coloursErr);
 
-      console.log("Trace 1: Loaded Colours Table:", coloursData);
-
       if (partiesData) setParties(partiesData);
       if (coloursData) setColours(coloursData);
     } catch (err) {
@@ -79,45 +99,161 @@ export default function PartyProgramLayout() {
     }
   }
 
-  // 2. Build programItems from DB
-  async function loadPartyLayout(partyId: number) {
-    console.log("Trace 2: Selected Party ID:", partyId);
+  // 2. Load Layouts for Party from party_program_layouts
+  async function loadPartyLayouts(partyId: number) {
     setLoading(true);
     try {
       const { data: layoutData, error: layoutError } = await supabase
-        .from("party_program_layout")
+        .from("party_program_layouts")
         .select("*")
-        .eq("party_id", partyId);
-
-      console.log("Trace 2: Raw Party Program Layout from DB:", layoutData);
-      console.log("Trace 2: Party Program Layout Error:", layoutError);
+        .eq("party_id", partyId)
+        .order("layout_name", { ascending: true });
 
       if (layoutError) {
-        alert("Error loading layout: " + layoutError.message);
+        alert("Error loading layouts: " + layoutError.message);
         return;
       }
 
+      setLayouts(layoutData || []);
       if (layoutData && layoutData.length > 0) {
-        const mappedItems: ProgramItem[] = layoutData.map((row: any) => {
+        // Automatically select the first layout (e.g. 'Default')
+        setSelectedLayoutId(layoutData[0].id);
+      } else {
+        setSelectedLayoutId(null);
+        setProgramItems([]);
+      }
+    } catch (err) {
+      console.error("Error loading layouts:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 3. Load programItems for selected layout using layout_id
+  async function loadLayoutItems(layoutId: number) {
+    setLoading(true);
+    try {
+      const { data: itemsData, error: itemsError } = await supabase
+        .from("party_program_layout")
+        .select("*")
+        .eq("layout_id", layoutId);
+
+      if (itemsError) {
+        alert("Error loading layout items: " + itemsError.message);
+        return;
+      }
+
+      if (itemsData && itemsData.length > 0) {
+        const mappedItems: ProgramItem[] = itemsData.map((row: any) => {
           const rawColourId = row.colour_id;
           const foundColour = colours.find((c) => c.id === rawColourId);
 
           return {
             id: row.id,
+            layout_id: row.layout_id,
             party_id: row.party_id,
             colour_id: Number(rawColourId),
             colour_name: row.colour_name || foundColour?.colour_name || "",
           };
         });
-
-        console.log("Trace 2: Built programItems from DB:", mappedItems);
         setProgramItems(mappedItems);
       } else {
-        console.log("Trace 2: No layout found for Party ID:", partyId);
         setProgramItems([]);
       }
     } catch (err) {
-      console.error("Error loading layout:", err);
+      console.error("Error loading layout items:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Handle New Layout Creation
+  async function handleCreateNewLayout() {
+    if (!selectedPartyId) {
+      alert("Please select a party first.");
+      return;
+    }
+
+    const layoutName = prompt("Enter new layout name (e.g., 'PLI Premium'):");
+    if (!layoutName || !layoutName.trim()) return;
+
+    const trimmedName = layoutName.trim();
+
+    // Check uniqueness locally
+    const exists = layouts.some(
+      (l) => l.layout_name.toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (exists) {
+      alert("A layout with this name already exists for this party.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("party_program_layouts")
+        .insert([{ party_id: selectedPartyId, layout_name: trimmedName }])
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === "23505") {
+          throw new Error("A layout with this name already exists for this party.");
+        }
+        throw new Error(error.message);
+      }
+
+      if (data) {
+        setLayouts((prev) =>
+          [...prev, data].sort((a, b) => a.layout_name.localeCompare(b.layout_name))
+        );
+        setSelectedLayoutId(data.id);
+        setProgramItems([]); // Start with empty colour sequence
+      }
+    } catch (err: any) {
+      console.error("Error creating layout:", err);
+      alert(err.message || "Failed to create layout.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Handle Delete Layout (Prevent deleting the last remaining layout)
+  async function handleDeleteLayout() {
+    if (!selectedLayoutId) return;
+
+    if (layouts.length <= 1) {
+      alert("You cannot delete the only layout for this party. Create another layout first.");
+      return;
+    }
+
+    const currentLayout = layouts.find((l) => l.id === selectedLayoutId);
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete the layout "${currentLayout?.layout_name || ""}"? This action cannot be undone.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from("party_program_layouts")
+        .delete()
+        .eq("id", selectedLayoutId);
+
+      if (error) throw new Error(error.message);
+
+      const remaining = layouts.filter((l) => l.id !== selectedLayoutId);
+      setLayouts(remaining);
+      if (remaining.length > 0) {
+        setSelectedLayoutId(remaining[0].id);
+      } else {
+        setSelectedLayoutId(null);
+        setProgramItems([]);
+      }
+      alert("Layout deleted successfully.");
+    } catch (err: any) {
+      console.error("Error deleting layout:", err);
+      alert(err.message || "Failed to delete layout.");
     } finally {
       setLoading(false);
     }
@@ -129,13 +265,13 @@ export default function PartyProgramLayout() {
     if (!selectedColourObj) return;
 
     const newItem: ProgramItem = {
+      layout_id: selectedLayoutId || undefined,
       party_id: selectedPartyId || undefined,
       colour_id: selectedColourObj.id,
       colour_name: selectedColourObj.colour_name,
     };
 
     const updatedList = [...programItems, newItem];
-    console.log("Trace 3: Adding row. Updated programItems:", updatedList);
     setProgramItems(updatedList);
   }
 
@@ -151,13 +287,11 @@ export default function PartyProgramLayout() {
       colour_name: selectedColourObj.colour_name,
     };
 
-    console.log("Trace 3: Changed row color. Updated programItems:", updated);
     setProgramItems(updated);
   }
 
   function handleRemoveItem(index: number) {
     const updated = programItems.filter((_, i) => i !== index);
-    console.log("Trace 3: Removed row. Updated programItems:", updated);
     setProgramItems(updated);
   }
 
@@ -179,15 +313,12 @@ export default function PartyProgramLayout() {
     setProgramItems(updated);
   }
 
-  // 4. Save Layout
+  // 5. Save Layout (Safe layout_id filtering - never deletes by party_id alone)
   async function handleSaveLayout() {
-    if (!selectedPartyId) {
-      alert("Please select a party first.");
+    if (!selectedPartyId || !selectedLayoutId) {
+      alert("Please select a party and a layout first.");
       return;
     }
-
-    console.log("Trace 4: Pre-save programItems state:", programItems);
-    console.log("Trace 4: Selected Party ID for save:", selectedPartyId);
 
     const validRowsToSave = programItems
       .filter(
@@ -197,41 +328,35 @@ export default function PartyProgramLayout() {
           !isNaN(item.colour_id)
       )
       .map((item) => ({
+        layout_id: selectedLayoutId,
         party_id: selectedPartyId,
         colour_id: Number(item.colour_id),
       }));
 
-    console.log("Trace 4: Rows being saved to Supabase:", validRowsToSave);
-
-    if (validRowsToSave.length === 0) {
-      alert("No valid colour IDs found to save.");
-      return;
-    }
-
     setSaving(true);
     try {
+      // SAFE DELETE: Deletes ONLY where layout_id matches the active layout
       const { error: deleteError } = await supabase
         .from("party_program_layout")
         .delete()
-        .eq("party_id", selectedPartyId);
+        .eq("layout_id", selectedLayoutId);
 
       if (deleteError) {
-        throw new Error("Failed to clear existing layout: " + deleteError.message);
+        throw new Error("Failed to clear existing layout items: " + deleteError.message);
       }
 
-      const { data: insertedData, error: insertError } = await supabase
-        .from("party_program_layout")
-        .insert(validRowsToSave)
-        .select();
+      if (validRowsToSave.length > 0) {
+        const { error: insertError } = await supabase
+          .from("party_program_layout")
+          .insert(validRowsToSave);
 
-      if (insertError) {
-        throw new Error("Failed to save layout: " + insertError.message);
+        if (insertError) {
+          throw new Error("Failed to save layout items: " + insertError.message);
+        }
       }
 
-      console.log("Trace 4: Save successful. Returned Data:", insertedData);
       alert("Party Program Layout saved successfully!");
-
-      loadPartyLayout(selectedPartyId);
+      loadLayoutItems(selectedLayoutId);
     } catch (err: any) {
       console.error("Save Layout Error:", err);
       alert(err.message || "An error occurred while saving layout.");
@@ -257,15 +382,15 @@ export default function PartyProgramLayout() {
               Party Program Layout
             </h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Configure default color sequences for printing programs
+              Configure multiple color sequences for printing programs per party
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => selectedPartyId && loadPartyLayout(selectedPartyId)}
-            disabled={!selectedPartyId || loading}
+            onClick={() => selectedLayoutId && loadLayoutItems(selectedLayoutId)}
+            disabled={!selectedLayoutId || loading}
             className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm"
           >
             <RefreshCw
@@ -278,7 +403,7 @@ export default function PartyProgramLayout() {
 
           <button
             onClick={handleSaveLayout}
-            disabled={!selectedPartyId || saving || programItems.length === 0}
+            disabled={!selectedLayoutId || saving}
             className="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
           >
             <Save className="w-4 h-4 mr-2" />
@@ -289,27 +414,73 @@ export default function PartyProgramLayout() {
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Party Selection & Available Colours */}
+        {/* Left Column: Party & Layout Selection & Available Colours */}
         <div className="space-y-6">
-          {/* Party Picker */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Select Party
-            </label>
-            <select
-              value={selectedPartyId || ""}
-              onChange={(e) =>
-                setSelectedPartyId(Number(e.target.value) || null)
-              }
-              className="w-full p-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium"
-            >
-              <option value="">-- Choose Party --</option>
-              {parties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+          {/* Party & Layout Pickers */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Select Party
+              </label>
+              <select
+                value={selectedPartyId || ""}
+                onChange={(e) =>
+                  setSelectedPartyId(Number(e.target.value) || null)
+                }
+                className="w-full p-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium"
+              >
+                <option value="">-- Choose Party --</option>
+                {parties.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Layout
+                </label>
+                {selectedPartyId && (
+                  <button
+                    onClick={handleCreateNewLayout}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" /> New Layout
+                  </button>
+                )}
+              </div>
+              <select
+                value={selectedLayoutId || ""}
+                onChange={(e) =>
+                  setSelectedLayoutId(Number(e.target.value) || null)
+                }
+                disabled={!selectedPartyId || layouts.length === 0}
+                className="w-full p-2.5 text-sm bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 font-medium disabled:opacity-50"
+              >
+                <option value="">-- Select Layout --</option>
+                {layouts.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.layout_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedLayoutId && (
+              <div className="pt-2">
+                <button
+                  onClick={handleDeleteLayout}
+                  disabled={layouts.length <= 1}
+                  className="w-full py-2 px-3 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Current Layout
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Available Colours Panel */}
@@ -345,7 +516,7 @@ export default function PartyProgramLayout() {
                       {c.colour_name}
                     </span>
                     <button
-                      disabled={!selectedPartyId}
+                      disabled={!selectedLayoutId}
                       onClick={() => handleAddColour(c.id)}
                       className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded transition-colors disabled:opacity-50 inline-flex items-center gap-1"
                     >
@@ -371,9 +542,9 @@ export default function PartyProgramLayout() {
                 Program Sequence
               </h2>
               <p className="text-xs text-slate-500">
-                {selectedPartyId
-                  ? `Configuring layout for party ID: ${selectedPartyId}`
-                  : "Please select a party to begin"}
+                {selectedLayoutId
+                  ? `Configuring items for selected layout`
+                  : "Please select a party and layout to begin"}
               </p>
             </div>
             <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full">
@@ -394,8 +565,6 @@ export default function PartyProgramLayout() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {programItems.map((item, index) => {
-                    console.log(`Trace 3: Rendering Row ${index + 1}:`, item);
-
                     return (
                       <tr
                         key={index}
@@ -465,10 +634,12 @@ export default function PartyProgramLayout() {
               <div className="p-12 text-center text-slate-400 space-y-2">
                 <Layers className="w-8 h-8 mx-auto text-slate-300" />
                 <p className="text-sm font-medium">
-                  No program items configured for this party.
+                  {selectedLayoutId
+                    ? "No program items configured for this layout."
+                    : "Please select a party and layout to view or configure items."}
                 </p>
                 <p className="text-xs text-slate-400">
-                  Select colours from the left panel to build the layout.
+                  {selectedLayoutId && "Select colours from the left panel to build the layout sequence."}
                 </p>
               </div>
             )}
