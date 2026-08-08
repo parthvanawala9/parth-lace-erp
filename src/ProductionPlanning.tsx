@@ -84,6 +84,7 @@ type PlannedBatch = {
   party_name: string;
   design_id: number | string;
   design_name: string;
+  order_no: string;
   status: string;
   planned_date: string;
   jobs: PlannedJob[];
@@ -115,6 +116,7 @@ export default function ProductionPlanning() {
 
   // New Party/Design Job Modal State
   const [isAddJobOpen, setIsAddJobOpen] = useState<boolean>(false);
+  const [viewQueueBatch, setViewQueueBatch] = useState<PlannedBatch | null>(null);
   const [modalMachineId, setModalMachineId] = useState<string>("");
   const [modalPartyFilter, setModalPartyFilter] = useState<string>("ALL");
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>("");
@@ -539,9 +541,10 @@ export default function ProductionPlanning() {
       const partyName = job.order_items?.orders?.parties?.name || "Unknown Party";
       const designId = job.order_items?.designs?.id || (job.order_items as any)?.design_id || "no_design";
       const designName = job.order_items?.designs?.design_name || "Unknown Design";
+      const orderNo = String(job.order_items?.orders?.order_no || "No Order");
 
-      // Group key strictly includes partyId
-      const batchKey = `${job.machine_id}_${job.status}_${job.planned_date}_${partyId}_${designId}`;
+      // One row per Order + Party + Design + Machine + Status + Date
+      const batchKey = `${job.machine_id}_${job.status}_${job.planned_date}_${partyId}_${designId}_${orderNo}`;
 
       if (!map.has(batchKey)) {
         map.set(batchKey, {
@@ -552,6 +555,7 @@ export default function ProductionPlanning() {
           party_name: partyName,
           design_id: designId,
           design_name: designName,
+          order_no: orderNo,
           status: job.status,
           planned_date: job.planned_date,
           jobs: [],
@@ -571,7 +575,6 @@ export default function ProductionPlanning() {
         batch.colours.push(cName);
       }
 
-      const orderNo = String(job.order_items?.orders?.order_no || "");
       if (orderNo && !batch.order_numbers.includes(orderNo)) {
         batch.order_numbers.push(orderNo);
       }
@@ -584,10 +587,43 @@ export default function ProductionPlanning() {
   const runningBatches = useMemo(() => getBatchesForStatus("Running"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
   const completedBatches = useMemo(() => getBatchesForStatus("Completed"), [plannedJobs, searchTerm, partyFilter, machineFilter, dateFilter]);
 
+  const groupedUnplannedRows = useMemo(() => {
+    const map = new Map<string, any>();
+
+    filteredUnplanned.forEach((item) => {
+      const orderNo = String(item.orders?.order_no || "No Order");
+      const partyId = String(item.orders?.parties?.id || "no_party");
+      const partyName = item.orders?.parties?.name || "Unknown Party";
+      const designId = String(item.designs?.id || "no_design");
+      const designName = item.designs?.design_name || "Unknown Design";
+      const key = `${orderNo}_${partyId}_${designId}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          order_no: orderNo,
+          party_id: partyId,
+          party_name: partyName,
+          design_id: designId,
+          design_name: designName,
+          items: [],
+          total_quantity: 0,
+          unit: item.unit || "Mtr",
+        });
+      }
+
+      const row = map.get(key)!;
+      row.items.push(item);
+      row.total_quantity += Number(item.quantity || 0);
+    });
+
+    return Array.from(map.values());
+  }, [filteredUnplanned]);
+
   const activeDataset = useMemo(() => {
     switch (activeTab) {
       case "unplanned":
-        return filteredUnplanned;
+        return groupedUnplannedRows;
       case "planned":
         return plannedBatches;
       case "running":
@@ -886,27 +922,30 @@ export default function ProductionPlanning() {
 
                       {runningBatch ? (
                         <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-lg space-y-2">
-                          <div className="flex justify-between items-start">
+                          <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
                             <div>
-                              <div className="font-bold text-emerald-950 text-sm">
-                                Party: {runningBatch.party_name}
-                              </div>
-                              <div className="text-xs font-semibold text-emerald-800">
-                                Design: {runningBatch.design_name}
-                              </div>
+                              <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Machine</div>
+                              <div className="font-bold text-slate-900 text-xs">{machine.machine_number}</div>
                             </div>
-                            <span className="text-[10px] font-semibold bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded">
-                              {runningBatch.total_quantity} {runningBatch.unit}
-                            </span>
-                          </div>
-
-                          <div className="text-xs text-emerald-700 flex flex-wrap gap-1 items-center">
-                            <span className="font-semibold">Colours:</span>
-                            {runningBatch.colours.map((c, idx) => (
-                              <span key={idx} className="bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded text-[10px]">
-                                {c}
-                              </span>
-                            ))}
+                            <div>
+                              <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Party</div>
+                              <div className="font-bold text-slate-900 text-xs">{runningBatch.party_name}</div>
+                            </div>
+                            <div>
+                              <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Design</div>
+                              <div className="font-bold text-blue-700 text-xs">{runningBatch.design_name}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[10px] font-semibold text-emerald-800 mb-1">
+                                {runningBatch.total_quantity} {runningBatch.unit}
+                              </div>
+                              <button
+                                onClick={() => setViewQueueBatch(runningBatch)}
+                                className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-700 border border-emerald-300 rounded font-semibold text-[10px]"
+                              >
+                                View
+                              </button>
+                            </div>
                           </div>
 
                           <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-end gap-2">
@@ -916,6 +955,12 @@ export default function ProductionPlanning() {
                             >
                               <CheckCircle2 className="w-3 h-3" />
                               Complete
+                            </button>
+                            <button
+                              onClick={() => setViewQueueBatch(runningBatch)}
+                              className="px-2 py-1 text-xs font-semibold bg-white text-slate-700 border border-emerald-300 rounded hover:bg-emerald-50 transition-colors"
+                            >
+                              View
                             </button>
                             <button
                               onClick={() => handlePrintProgram(runningBatch)}
@@ -945,27 +990,30 @@ export default function ProductionPlanning() {
                               key={batch.batchKey}
                               className="p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors space-y-1.5"
                             >
-                              <div className="flex justify-between items-start">
+                              <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
                                 <div>
-                                  <div className="font-bold text-slate-900 text-xs">
-                                    {batch.party_name}
-                                  </div>
-                                  <div className="text-[11px] font-medium text-blue-700">
-                                    Design: {batch.design_name}
-                                  </div>
+                                  <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Machine</div>
+                                  <div className="font-bold text-slate-900 text-xs">{machine.machine_number}</div>
                                 </div>
-                                <span className="text-[10px] font-medium bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
-                                  {batch.total_quantity} {batch.unit}
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap gap-1 text-[11px] text-slate-600">
-                                <span className="font-semibold">Colours:</span>
-                                {batch.colours.map((c, idx) => (
-                                  <span key={idx} className="bg-slate-200 text-slate-800 px-1 py-0.5 rounded text-[10px]">
-                                    {c}
-                                  </span>
-                                ))}
+                                <div>
+                                  <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Party</div>
+                                  <div className="font-bold text-slate-900 text-xs">{batch.party_name}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Design</div>
+                                  <div className="font-bold text-blue-700 text-xs">{batch.design_name}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-[10px] font-medium text-slate-700 mb-1">
+                                    {batch.total_quantity} {batch.unit}
+                                  </div>
+                                  <button
+                                    onClick={() => setViewQueueBatch(batch)}
+                                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded font-semibold text-[10px]"
+                                  >
+                                    View
+                                  </button>
+                                </div>
                               </div>
 
                               <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
@@ -979,6 +1027,12 @@ export default function ProductionPlanning() {
                                 >
                                   <Play className="w-3 h-3" />
                                   Start
+                                </button>
+                                <button
+                                  onClick={() => setViewQueueBatch(batch)}
+                                  className="px-2 py-1 text-[11px] font-semibold bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-100 transition-colors"
+                                >
+                                  View
                                 </button>
                                 <button
                                   onClick={() => handlePrintProgram(batch)}
@@ -1010,10 +1064,10 @@ export default function ProductionPlanning() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="py-3 px-4">Order #</th>
                   <th className="py-3 px-4">Party</th>
                   <th className="py-3 px-4">Design</th>
-                  <th className="py-3 px-4">{activeTab === "unplanned" ? "Colour" : "Colours Included"}</th>
-                  <th className="py-3 px-4">{activeTab === "unplanned" ? "Quantity" : "Total Quantity"}</th>
+                  <th className="py-3 px-4">Quantity</th>
                   <th className="py-3 px-4">Target / Planned Date</th>
                   {activeTab !== "unplanned" && <th className="py-3 px-4">Machine</th>}
                   {activeTab !== "unplanned" && <th className="py-3 px-4">Status</th>}
@@ -1027,31 +1081,28 @@ export default function ProductionPlanning() {
 
                     if (isUnplanned) {
                       return (
-                        <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr key={row.key} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-4 font-bold text-slate-900">
-                            <div>{row.orders?.parties?.name || "-"}</div>
-                            <div className="text-[11px] text-slate-500 font-normal">
-                              Order #{row.orders?.order_no || "-"}
-                            </div>
+                            #{row.order_no}
+                          </td>
+                          <td className="py-3 px-4 font-bold text-slate-900">
+                            {row.party_name}
                           </td>
                           <td className="py-3 px-4 font-semibold text-blue-700">
-                            {row.designs?.design_name || "-"}
+                            {row.design_name}
                           </td>
-                          <td className="py-3 px-4">{row.colours?.colour_name || "-"}</td>
                           <td className="py-3 px-4 font-medium">
-                            {row.quantity} {row.unit || "Mtr"}
+                            {row.total_quantity} {row.unit}
                           </td>
                           <td className="py-3 px-4 text-slate-500">
-                            {row.orders?.delivery_date || "-"}
+                            {row.items?.[0]?.orders?.delivery_date || "-"}
                           </td>
-                          <td className="py-3 px-4 text-right" colSpan={3}>
+                          <td className="py-3 px-4 text-right">
                             <button
                               onClick={() => {
                                 openAddJobModal();
-                                const pId = row.orders?.parties?.id || "no_party";
-                                const dId = row.designs?.id || "no_design";
-                                setModalPartyFilter(String(pId));
-                                setSelectedGroupKey(`${pId}_${dId}`);
+                                setModalPartyFilter(String(row.party_id));
+                                setSelectedGroupKey(`${row.party_id}_${row.design_id}`);
                               }}
                               className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold text-xs transition-colors shadow-sm"
                             >
@@ -1062,24 +1113,18 @@ export default function ProductionPlanning() {
                       );
                     }
 
-                    // PlannedBatch row
+                    // Planned / Running / Completed row
                     const batch = row as PlannedBatch;
                     return (
                       <tr key={batch.batchKey} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 font-bold text-slate-900">
+                          #{batch.order_no}
+                        </td>
                         <td className="py-3 px-4 font-bold text-slate-900">
                           {batch.party_name}
                         </td>
                         <td className="py-3 px-4 font-semibold text-blue-700">
                           {batch.design_name}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex flex-wrap gap-1">
-                            {batch.colours.map((c, idx) => (
-                              <span key={idx} className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-[10px] font-medium border border-slate-200">
-                                {c}
-                              </span>
-                            ))}
-                          </div>
                         </td>
                         <td className="py-3 px-4 font-medium">
                           {batch.total_quantity} {batch.unit}
@@ -1125,7 +1170,7 @@ export default function ProductionPlanning() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400">
+                    <td colSpan={7} className="py-8 text-center text-slate-400">
                       No records found matching current criteria.
                     </td>
                   </tr>
@@ -1156,6 +1201,77 @@ export default function ProductionPlanning() {
                 className="p-1.5 border border-slate-300 bg-white rounded hover:bg-slate-100 disabled:opacity-40 transition-colors text-slate-600"
               >
                 <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewQueueBatch && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">Job Details</h3>
+                <p className="text-xs text-slate-500">Machine Queue</p>
+              </div>
+              <button
+                onClick={() => setViewQueueBatch(null)}
+                className="text-slate-400 hover:text-slate-700 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="border border-slate-200 rounded-lg p-3">
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Machine No.</div>
+                  <div className="font-bold text-slate-900">{viewQueueBatch.machine_number}</div>
+                </div>
+                <div className="border border-slate-200 rounded-lg p-3">
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Party Name</div>
+                  <div className="font-bold text-slate-900">{viewQueueBatch.party_name}</div>
+                </div>
+                <div className="border border-slate-200 rounded-lg p-3">
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Design No.</div>
+                  <div className="font-bold text-blue-700">{viewQueueBatch.design_name}</div>
+                </div>
+                <div className="border border-slate-200 rounded-lg p-3">
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Quantity</div>
+                  <div className="font-bold text-slate-900">
+                    {viewQueueBatch.total_quantity} {viewQueueBatch.unit}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-lg p-3">
+                <div className="text-[10px] uppercase font-bold text-slate-500 mb-2">
+                  Colours
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+                  {viewQueueBatch.colours.length > 0 ? (
+                    viewQueueBatch.colours.map((colour, index) => (
+                      <span
+                        key={`${colour}-${index}`}
+                        className="px-2 py-1 rounded bg-slate-100 text-slate-800 text-xs font-medium border border-slate-200"
+                      >
+                        {colour}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-slate-400">No colours found</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setViewQueueBatch(null)}
+                className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold"
+              >
+                Close
               </button>
             </div>
           </div>
