@@ -33,6 +33,9 @@ interface Order {
   created_at?: string;
   items?: OrderItem[];
   order_items?: OrderItem[];
+  calculated_status?: string;
+  total_ordered_pcs?: number;
+  total_dispatched_pcs?: number;
 }
 
 export default function OrdersList() {
@@ -50,28 +53,86 @@ export default function OrdersList() {
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          party:parties!orders_party_id_fkey (
-            id,
-            name
-          ),
-          order_items (
+      const [ordersRes, dispatchesRes] = await Promise.all([
+        supabase
+          .from('orders')
+          .select(`
             *,
-            designs (
-              design_name
+            party:parties!orders_party_id_fkey (
+              id,
+              name
             ),
-            colours (
-              colour_name
+            order_items (
+              *,
+              designs (
+                design_name
+              ),
+              colours (
+                colour_name
+              )
             )
-          )
-        `)
-        .order('created_at', { ascending: false });
+          `)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('dispatches')
+          .select('order_item_id, dispatch_qty, dispatched_qty, qty, quantity')
+      ]);
 
-      if (error) throw error;
-      setOrders(data || []);
+      if (ordersRes.error) throw ordersRes.error;
+      if (dispatchesRes.error) throw dispatchesRes.error;
+
+      const dispatchMap = new Map<string, number>();
+      (dispatchesRes.data || []).forEach((log: any) => {
+        const orderItemId = log.order_item_id;
+        if (!orderItemId) return;
+        const qty = Number(
+          log.dispatch_qty ??
+          log.dispatched_qty ??
+          log.qty ??
+          log.quantity
+        ) || 0;
+        dispatchMap.set(orderItemId, (dispatchMap.get(orderItemId) || 0) + qty);
+      });
+
+      const processedOrders = (ordersRes.data || []).map((order: any) => {
+        const items = order.items || order.order_items || [];
+        let totalOrderedPcs = 0;
+        let totalDispatchedPcs = 0;
+
+        items.forEach((item: any) => {
+          const quantity = Number(item.quantity) || 0;
+          const parcelPcs = Number(item.parcel_pcs) || 0;
+          const unit = String(item.unit || '').toLowerCase();
+
+          const itemOrderedPcs =
+            unit === 'carton' && parcelPcs > 0
+              ? quantity * parcelPcs
+              : quantity;
+
+          totalOrderedPcs += itemOrderedPcs;
+
+          const dispatchedQty = item.id ? (dispatchMap.get(item.id) || 0) : 0;
+          totalDispatchedPcs += dispatchedQty;
+        });
+
+        let calculatedStatus = 'Pending';
+        if (totalDispatchedPcs > 0 && totalDispatchedPcs < totalOrderedPcs) {
+          calculatedStatus = 'Partially Dispatched';
+        } else if (totalDispatchedPcs >= totalOrderedPcs && totalOrderedPcs > 0) {
+          calculatedStatus = 'Fully Dispatched';
+        } else if (totalDispatchedPcs > 0 && totalOrderedPcs === 0) {
+          calculatedStatus = 'Fully Dispatched';
+        }
+
+        return {
+          ...order,
+          calculated_status: calculatedStatus,
+          total_ordered_pcs: totalOrderedPcs,
+          total_dispatched_pcs: totalDispatchedPcs
+        };
+      });
+
+      setOrders(processedOrders);
     } catch (err: any) {
       console.error('Error fetching orders:', String(err?.message ?? err).toLowerCase());
     } finally {
@@ -153,16 +214,17 @@ export default function OrdersList() {
 
   const filteredOrders = orders.filter((order) => {
     const query = String(searchTerm ?? '').toLowerCase().trim();
+    const orderStatus = String(order.calculated_status ?? order.status ?? '').toLowerCase();
     const matchesStatus =
       statusFilter === 'all' ||
-      String(order.status ?? '').toLowerCase() === String(statusFilter ?? '').toLowerCase();
+      orderStatus === String(statusFilter ?? '').toLowerCase();
 
     if (!matchesStatus) return false;
     if (!query) return true;
 
     const orderNo = String(order.order_no ?? '').toLowerCase();
     const partyName = String(order.party?.name ?? order.party_name ?? '').toLowerCase();
-    const status = String(order.status ?? '').toLowerCase();
+    const status = orderStatus;
 
     const items = order.items || order.order_items || [];
     const matchesItems = items.some((item) => {
@@ -188,32 +250,24 @@ export default function OrdersList() {
 
   const getStatusBadge = (status?: string) => {
     const normalizedStatus = String(status ?? '').toLowerCase();
-    switch (normalizedStatus) {
-      case 'completed':
-        return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-            Completed
-          </span>
-        );
-      case 'processing':
-      case 'in progress':
-        return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            Processing
-          </span>
-        );
-      case 'cancelled':
-        return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-            Cancelled
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-            Pending
-          </span>
-        );
+    if (normalizedStatus.includes('fully')) {
+      return (
+        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+          Fully Dispatched
+        </span>
+      );
+    } else if (normalizedStatus.includes('partially')) {
+      return (
+        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+          Partially Dispatched
+        </span>
+      );
+    } else {
+      return (
+        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+          Pending
+        </span>
+      );
     }
   };
 
@@ -252,9 +306,8 @@ export default function OrdersList() {
           >
             <option value="all">All Statuses</option>
             <option value="pending">Pending</option>
-            <option value="processing">Processing</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="partially dispatched">Partially Dispatched</option>
+            <option value="fully dispatched">Fully Dispatched</option>
           </select>
         </div>
       </div>
@@ -286,7 +339,7 @@ export default function OrdersList() {
                           #{String(order.order_no ?? '')}
                         </span>
                       </div>
-                      <div>{getStatusBadge(order.status)}</div>
+                      <div>{getStatusBadge(order.calculated_status ?? order.status)}</div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-sm border-t border-b border-gray-100 py-2">
@@ -392,7 +445,7 @@ export default function OrdersList() {
                             <span className="text-gray-400 italic">No items</span>
                           )}
                         </td>
-                        <td className="py-3 px-4">{getStatusBadge(order.status)}</td>
+                        <td className="py-3 px-4">{getStatusBadge(order.calculated_status ?? order.status)}</td>
                         <td className="py-3 px-4 text-gray-500 text-xs">
                           {order.created_at
                             ? new Date(order.created_at).toLocaleDateString()
@@ -452,7 +505,7 @@ export default function OrdersList() {
                 </div>
                 <div>
                   <span className="text-xs text-gray-500 block">Status</span>
-                  <div>{getStatusBadge(selectedOrder.status)}</div>
+                  <div>{getStatusBadge(selectedOrder.calculated_status ?? selectedOrder.status)}</div>
                 </div>
                 <div>
                   <span className="text-xs text-gray-500 block">Order Date</span>
