@@ -28,8 +28,8 @@ function Dashboard() {
 function Reports() {
   return (
     <div className="p-8">
-      <h1 className="text-3xl font-bold">Reports</h1>
-      <p>Coming Soon...</p>
+      <h1 className="text-3xl font-bold mb-4">Reports</h1>
+      <p className="text-slate-600">Coming Soon...</p>
     </div>
   );
 }
@@ -37,8 +37,8 @@ function Reports() {
 function Settings() {
   return (
     <div className="p-8">
-      <h1 className="text-3xl font-bold">Settings</h1>
-      <p>Coming Soon...</p>
+      <h1 className="text-3xl font-bold mb-4">Settings</h1>
+      <p className="text-slate-600">Coming Soon...</p>
     </div>
   );
 }
@@ -48,7 +48,6 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<MainLayout />}>
-
           <Route path="/" element={<Navigate to="/orders" replace />} />
 
           <Route path="/dashboard" element={<Dashboard />} />
@@ -84,8 +83,15 @@ export default function App() {
 
           <Route path="/dispatch" element={<Dispatch />} />
 
+          {/* Existing dispatch slip route */}
           <Route
             path="/dispatch/slip/:id"
+            element={<DispatchSlip />}
+          />
+
+          {/* Manual challan route used by Dispatch.tsx */}
+          <Route
+            path="/dispatch-slip"
             element={<DispatchSlip />}
           />
 
@@ -97,7 +103,6 @@ export default function App() {
           <Route path="/reports" element={<Reports />} />
 
           <Route path="/settings" element={<Settings />} />
-
         </Route>
       </Routes>
     </BrowserRouter>
