@@ -427,46 +427,75 @@ export default function Dispatch() {
 async function handlePartialDispatch() {
   if (!selectedGroup) return;
 
-  const qty = Number(partialQty);
+  const parcelSize =
+    Number(selectedGroup.jobs[0]?.order_items?.parcel_pcs) || 420;
+
+  const qty = Number(partialQty) * parcelSize;
 
   if (!qty || qty <= 0) {
     alert("Please enter a valid dispatch quantity.");
     return;
   }
 
+  const totalPending = selectedGroup.jobs.reduce(
+    (total: number, job: PlannedJob) => {
+      const orderItemId = job.order_item_id;
+      const orderQty = job.order_items?.quantity || 0;
+      const dispatchedSoFar =
+        dispatchedQtyByOrderItem.get(orderItemId) || 0;
+
+      return total + Math.max(0, orderQty - dispatchedSoFar);
+    },
+    0
+  );
+
+  if (qty > totalPending) {
+    alert(
+      `Dispatch quantity cannot exceed total pending quantity (${totalPending} PCS).`
+    );
+    return;
+  }
+
   const todayStr = new Date().toISOString().split("T")[0];
 
+  let remainingQty = qty;
+
   for (const job of selectedGroup.jobs) {
+    if (remainingQty <= 0) break;
+
     const orderItemId = job.order_item_id;
     const orderQty = job.order_items?.quantity || 0;
     const dispatchedSoFar =
       dispatchedQtyByOrderItem.get(orderItemId) || 0;
 
-    const pendingQty = Math.max(0, orderQty - dispatchedSoFar);
+    const pendingQty = Math.max(
+      0,
+      orderQty - dispatchedSoFar
+    );
 
     if (pendingQty <= 0) continue;
 
-    if (qty > pendingQty) {
-      alert(
-        `Dispatch quantity cannot exceed pending quantity (${pendingQty}).`
-      );
-      return;
-    }
+    const dispatchQty = Math.min(
+      remainingQty,
+      pendingQty
+    );
 
-    const { error } = await supabase.from("dispatches").insert({
-      order_item_id: orderItemId,
-      dispatch_date: todayStr,
-      dispatch_qty: qty,
-      remarks: "Partial Dispatch",
-      status: "Partially Dispatched",
-    });
+    const { error } = await supabase
+      .from("dispatches")
+      .insert({
+        order_item_id: orderItemId,
+        dispatch_date: todayStr,
+        dispatch_qty: dispatchQty,
+        remarks: "Partial Dispatch",
+        status: "Partially Dispatched",
+      });
 
     if (error) {
       alert(error.message);
       return;
     }
 
-    break;
+    remainingQty -= dispatchQty;
   }
 
   setShowPartialModal(false);
@@ -475,7 +504,6 @@ async function handlePartialDispatch() {
 
   await loadData();
 }
-  // Handle Printing Group Dispatch Challan
   function handlePrintChallanGroup(group: {
     partyName: string;
     designs: string[];
@@ -848,18 +876,31 @@ async function handlePartialDispatch() {
                     )}
 
                     <div className="pt-1 flex justify-end">
-                      <button
-                        disabled={submittingGroupKey === group.groupKey}
-                        onClick={() => handleDispatchGroup(group)}
-                        className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
-                      >
-                        {submittingGroupKey === group.groupKey ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Check className="w-3.5 h-3.5" />
-                        )}
-                        Complete Dispatch
-                      </button>
+                      <>
+  <button
+    onClick={() => {
+      setSelectedGroup(group);
+      setPartialQty("");
+      setShowPartialModal(true);
+    }}
+    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-xs"
+  >
+    Partial
+  </button>
+
+  <button
+    disabled={submittingGroupKey === group.groupKey}
+    onClick={() => handleDispatchGroup(group)}
+    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2 rounded-lg text-xs inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+  >
+    {submittingGroupKey === group.groupKey ? (
+      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+    ) : (
+      <Check className="w-3.5 h-3.5" />
+    )}
+    Complete Dispatch
+  </button>
+</>
                     </div>
                   </div>
                 ))}
@@ -1085,7 +1126,7 @@ async function handlePartialDispatch() {
                       )}
                     </div>
 
-                    <div className="pt-1 flex justify-end">
+                    <div className="pt-1 flex gap-2 justify-end">
                       <button
                         onClick={() => handlePrintChallanGroup(group)}
                         className="w-full sm:w-auto bg-slate-700 hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg text-xs transition-colors shadow-sm inline-flex items-center justify-center gap-1.5"
