@@ -42,7 +42,7 @@ export default function OrdersList() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState<boolean>(false);
 
@@ -53,46 +53,64 @@ export default function OrdersList() {
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const [ordersRes, dispatchesRes] = await Promise.all([
-        supabase
-          .from('orders')
-          .select(`
+      // Fetch orders independently. A dispatch-table problem must NOT hide the orders list.
+      const ordersRes = await supabase
+        .from('orders')
+        .select(`
+          *,
+          party:parties!orders_party_id_fkey (
+            id,
+            name
+          ),
+          order_items (
             *,
-            party:parties!orders_party_id_fkey (
-              id,
-              name
+            designs (
+              design_name
             ),
-            order_items (
-              *,
-              designs (
-                design_name
-              ),
-              colours (
-                colour_name
-              )
+            colours (
+              colour_name
             )
-          `)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('dispatches')
-          .select('order_item_id, dispatch_qty, dispatched_qty, qty, quantity')
-      ]);
+          )
+        `)
+        .order('created_at', { ascending: false });
 
       if (ordersRes.error) throw ordersRes.error;
-      if (dispatchesRes.error) throw dispatchesRes.error;
 
+      // Dispatch data is optional for displaying the order list.
+      // If the dispatch query fails, keep the orders visible and treat dispatched quantity as 0.
       const dispatchMap = new Map<string, number>();
-      (dispatchesRes.data || []).forEach((log: any) => {
-        const orderItemId = log.order_item_id;
-        if (!orderItemId) return;
-        const qty = Number(
-          log.dispatch_qty ??
-          log.dispatched_qty ??
-          log.qty ??
-          log.quantity
-        ) || 0;
-        dispatchMap.set(orderItemId, (dispatchMap.get(orderItemId) || 0) + qty);
-      });
+
+      const dispatchesRes = await supabase
+        .from('dispatches')
+        .select('*');
+
+      if (dispatchesRes.error) {
+        console.warn(
+          'Could not load dispatch records. Orders will still be displayed:',
+          dispatchesRes.error.message
+        );
+      } else {
+        (dispatchesRes.data || []).forEach((log: any) => {
+          const orderItemId = log.order_item_id;
+          if (!orderItemId) return;
+
+          const qty = Number(
+            log.dispatch_qty ??
+            log.dispatched_qty ??
+            log.dispatch_pcs ??
+            log.dispatched_pcs ??
+            log.qty ??
+            log.quantity ??
+            log.pcs ??
+            0
+          ) || 0;
+
+          dispatchMap.set(
+            orderItemId,
+            (dispatchMap.get(orderItemId) || 0) + qty
+          );
+        });
+      }
 
       const processedOrders = (ordersRes.data || []).map((order: any) => {
         const items = order.items || order.order_items || [];
