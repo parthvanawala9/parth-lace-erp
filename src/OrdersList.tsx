@@ -363,7 +363,7 @@ export default function OrdersList() {
                     <div className="grid grid-cols-2 gap-2 text-sm border-t border-b border-gray-100 py-2">
                       <div>
                         <span className="text-xs text-gray-500 block">Party Name</span>
-                        <span className="font-medium text-gray-800">
+                        <span className="text-base font-extrabold text-blue-800 bg-blue-50 px-2 py-1 rounded-md inline-block">
                           {order.party?.name ?? order.party_name ?? 'N/A'}
                         </span>
                       </div>
@@ -385,10 +385,10 @@ export default function OrdersList() {
                         <div className="space-y-1.5 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
                           {summaries.map((summary, idx) => (
                             <div key={idx} className="text-xs">
-                              <span className="font-semibold text-gray-800">
+                              <span className="text-base font-extrabold text-gray-900 bg-yellow-100 px-2 py-0.5 rounded-md">
                                 {summary.designName}
                               </span>
-                              <span className="text-gray-600 font-medium ml-1">
+                              <span className="text-base font-extrabold text-green-800 bg-green-100 px-2 py-0.5 rounded-md ml-1">
                                 - {summary.displayQuantity}
                               </span>
                             </div>
@@ -442,18 +442,20 @@ export default function OrdersList() {
                         <td className="py-3 px-4 font-medium text-gray-900">
                           #{String(order.order_no ?? '')}
                         </td>
-                        <td className="py-3 px-4 text-gray-700 font-medium">
-                          {order.party?.name ?? order.party_name ?? 'N/A'}
+                        <td className="py-3 px-4 text-gray-700">
+                          <span className="text-base font-extrabold text-blue-800">
+                            {order.party?.name ?? order.party_name ?? 'N/A'}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-gray-600">
                           {summaries.length > 0 ? (
                             <div className="space-y-1">
                               {summaries.map((summary, idx) => (
                                 <div key={idx} className="text-xs">
-                                  <span className="font-semibold text-gray-800">
+                                  <span className="text-base font-extrabold text-gray-900 bg-yellow-100 px-2 py-0.5 rounded-md">
                                     {summary.designName}
                                   </span>
-                                  <span className="text-gray-600 font-medium ml-1">
+                                  <span className="text-base font-extrabold text-green-800 bg-green-100 px-2 py-0.5 rounded-md ml-1">
                                     - {summary.displayQuantity}
                                   </span>
                                 </div>
