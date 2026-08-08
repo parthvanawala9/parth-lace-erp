@@ -326,6 +326,28 @@ export default function ProductionPlanning() {
     loadData();
   }
 
+  async function removeQueuedBatch(batch: PlannedBatch) {
+    const confirmed = window.confirm(
+      `Remove ${batch.design_name} (${batch.party_name}) from the machine queue?\\n\\nThis will remove the planned job from this machine. The original order will NOT be deleted.`
+    );
+
+    if (!confirmed) return;
+
+    const jobIds = batch.jobs.map((j) => j.id);
+
+    const { error } = await supabase
+      .from("production_planning")
+      .delete()
+      .in("id", jobIds);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    loadData();
+  }
+
   async function startProductionBatch(batch: PlannedBatch) {
     const jobIds = batch.jobs.map((j) => j.id);
 
@@ -1074,6 +1096,12 @@ export default function ProductionPlanning() {
                                   className="px-2 py-1 text-[11px] font-semibold bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-100 transition-colors"
                                 >
                                   View
+                                </button>
+                                <button
+                                  onClick={() => removeQueuedBatch(batch)}
+                                  className="px-2 py-1 text-[11px] font-semibold bg-white hover:bg-red-50 text-red-700 border border-red-200 rounded transition-colors"
+                                >
+                                  Remove
                                 </button>
                                 <button
                                   onClick={() => handlePrintProgram(batch)}
