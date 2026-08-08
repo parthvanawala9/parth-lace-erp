@@ -9,7 +9,8 @@ import {
   MoveDown,
   Layers,
   Search,
-  AlertCircle
+  AlertCircle,
+  Pencil
 } from "lucide-react";
 
 type Party = {
@@ -48,6 +49,8 @@ export default function PartyProgramLayout() {
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [isRenamingLayout, setIsRenamingLayout] = useState<boolean>(false);
+  const [renameLayoutName, setRenameLayoutName] = useState<string>("");
 
   useEffect(() => {
     fetchInitialData();
@@ -259,6 +262,63 @@ export default function PartyProgramLayout() {
     }
   }
 
+  // Rename the currently selected layout without changing its colours
+  async function handleRenameLayout() {
+    if (!selectedLayoutId) {
+      alert("Please select a layout first.");
+      return;
+    }
+
+    const trimmedName = renameLayoutName.trim();
+    if (!trimmedName) {
+      alert("Please enter a layout name.");
+      return;
+    }
+
+    const exists = layouts.some(
+      (l) =>
+        l.id !== selectedLayoutId &&
+        l.layout_name.toLowerCase() === trimmedName.toLowerCase()
+    );
+
+    if (exists) {
+      alert("A layout with this name already exists for this party.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const { data, error } = await supabase
+        .from("party_program_layouts")
+        .update({ layout_name: trimmedName })
+        .eq("id", selectedLayoutId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      if (data) {
+        setLayouts((prev) =>
+          prev
+            .map((layout) =>
+              layout.id === selectedLayoutId ? data : layout
+            )
+            .sort((a, b) => a.layout_name.localeCompare(b.layout_name))
+        );
+      }
+
+      setIsRenamingLayout(false);
+      setRenameLayoutName("");
+      alert("Layout renamed successfully!");
+    } catch (err: any) {
+      console.error("Error renaming layout:", err);
+      alert(err.message || "Failed to rename layout.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // Add Row by picking a colour
   function handleAddColour(colourId: number) {
     const selectedColourObj = colours.find((c) => c.id === colourId);
@@ -452,6 +512,7 @@ export default function PartyProgramLayout() {
                   </button>
                 )}
               </div>
+
               <select
                 value={selectedLayoutId || ""}
                 onChange={(e) =>
@@ -470,15 +531,63 @@ export default function PartyProgramLayout() {
             </div>
 
             {selectedLayoutId && (
-              <div className="pt-2">
-                <button
-                  onClick={handleDeleteLayout}
-                  disabled={layouts.length <= 1}
-                  className="w-full py-2 px-3 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete Current Layout
-                </button>
+              <div className="pt-2 space-y-2">
+                {!isRenamingLayout ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        const current = layouts.find(
+                          (l) => l.id === selectedLayoutId
+                        );
+                        setRenameLayoutName(current?.layout_name || "");
+                        setIsRenamingLayout(true);
+                      }}
+                      className="py-2 px-3 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Rename
+                    </button>
+
+                    <button
+                      onClick={handleDeleteLayout}
+                      disabled={layouts.length <= 1}
+                      className="py-2 px-3 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                    <label className="block text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                      Rename Layout
+                    </label>
+                    <input
+                      value={renameLayoutName}
+                      onChange={(e) => setRenameLayoutName(e.target.value)}
+                      className="w-full p-2 text-sm bg-white border border-amber-200 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleRenameLayout}
+                        disabled={saving}
+                        className="flex-1 py-2 px-3 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+                      >
+                        {saving ? "Saving..." : "Save Name"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsRenamingLayout(false);
+                          setRenameLayoutName("");
+                        }}
+                        className="py-2 px-3 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
