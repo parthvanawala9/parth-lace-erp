@@ -355,6 +355,41 @@ export default function ProductionPlanning() {
     loadData();
   }
 
+  async function removeRunningBatchFromMachine(batch: PlannedBatch) {
+    const confirmed = window.confirm(
+      `Remove ${batch.design_name} (${batch.party_name}) from machine ${batch.machine_number}?\n\nThe order will remain in the queue as Planned.`
+    );
+
+    if (!confirmed) return;
+
+    const jobIds = batch.jobs.map((j) => j.id);
+
+    const { error: planError } = await supabase
+      .from("production_planning")
+      .update({ status: "Planned" })
+      .in("id", jobIds);
+
+    if (planError) {
+      alert(planError.message);
+      return;
+    }
+
+    const { error: machineError } = await supabase
+      .from("machines")
+      .update({
+        status: "Idle",
+        current_design: null,
+      })
+      .eq("id", batch.machine_id);
+
+    if (machineError) {
+      alert(machineError.message);
+      return;
+    }
+
+    loadData();
+  }
+
   async function completeProductionBatch(batch: PlannedBatch) {
     const jobIds = batch.jobs.map((j) => j.id);
 
@@ -962,6 +997,12 @@ export default function ProductionPlanning() {
                             >
                               View
                             </button>
+                              <button
+                                onClick={() => removeRunningBatchFromMachine(runningBatch)}
+                                className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-red-50 text-red-700 border border-red-200 rounded transition-colors"
+                              >
+                                Remove
+                              </button>
                             <button
                               onClick={() => handlePrintProgram(runningBatch)}
                               className="px-2 py-1 text-xs font-medium bg-white text-emerald-800 border border-emerald-300 rounded hover:bg-emerald-50 transition-colors inline-flex items-center gap-1"
